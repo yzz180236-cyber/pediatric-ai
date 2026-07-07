@@ -1,0 +1,60 @@
+# Environment variables
+.env
+.env.*
+!.env.example
+!.env.*.example
+!**/.env.example
+apps/bff/.env
+apps/frontend/.env
+services/ai-engine/.env
+services/ai-engine/.env.*
+!services/ai-engine/.env.example
+
+# Node
+node_modules/
+dist/
+coverage/
+*.tsbuildinfo
+apps/bff/dist/
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+services/ai-engine/.venv/
+
+# IDE
+.idea/
+.vscode/
+
+# OS
+.DS_Store
+
+# Logs
+logs/
+*.log
+apps/bff/logs/
+
+# Data
+volumes/
+milvus_demo.db
+services/ai-engine/uploads/
+services/ai-engine/private_uploads/
+services/ai-engine/debug_image.log
+services/ai-engine/*.sqlite
+services/ai-engine/*.db
+
+services/ai-engine/.env
+
+
+# Agents
+.agents/
+
+# Local docs
+docs/
+current_progress.md
+
+# Local skills
+skills/

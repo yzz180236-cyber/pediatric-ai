@@ -1,0 +1,13 @@
+.growth-chart-container {
+  width: 100%;
+  margin-top: 10px;
+}
+
+.growth-chart-empty {
+  min-height: 220px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #999;
+  font-size: 14px;
+}

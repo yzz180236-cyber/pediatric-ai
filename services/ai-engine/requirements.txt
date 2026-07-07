@@ -1,0 +1,13 @@
+fastapi
+uvicorn
+langgraph
+langchain
+langchain-openai
+python-dotenv
+pymilvus
+langchain-milvus
+prometheus-client
+pypdf
+langchain-community
+python-multipart
+duckduckgo-search

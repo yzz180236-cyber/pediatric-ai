@@ -1,0 +1,28 @@
+import os
+import base64
+from langchain_openai import ChatOpenAI
+from langchain_core.messages import HumanMessage
+from config import get_llm_base_url, require_env
+
+api_key = require_env("LLM_API_KEY")
+base_url = get_llm_base_url()
+llm = ChatOpenAI(api_key=api_key, base_url=base_url, model="qwen-vl-plus")
+
+filepath = "uploads/4c5827689d554fa79252f299ba65337d.jpg"
+with open(filepath, "rb") as f:
+    img_b64 = base64.b64encode(f.read()).decode()
+    b64_url = f"data:image/jpeg;base64,{img_b64}"
+
+messages = [
+    HumanMessage(content=[
+        {"type": "text", "text": "描述一下这张图片"},
+        {"type": "image_url", "image_url": {"url": b64_url}}
+    ])
+]
+
+try:
+    print("Calling Qwen-VL-Plus with wrong MIME type...")
+    res = llm.invoke(messages)
+    print("Response:", res.content)
+except Exception as e:
+    print("Error:", e)

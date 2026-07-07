@@ -1,0 +1,113 @@
+.doctor-session-page {
+  min-height: 100vh;
+  padding: 16px;
+  background: linear-gradient(180deg, #f6f8fc 0%, #eef3fb 100%);
+  box-sizing: border-box;
+}
+
+.doctor-session-card {
+  padding: 16px;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 10px 28px rgba(15, 23, 42, 0.08);
+  margin-bottom: 14px;
+}
+
+.doctor-session-title {
+  font-size: 18px;
+  font-weight: 700;
+  color: #111827;
+  margin-bottom: 10px;
+}
+
+.doctor-session-profile-btn {
+  margin-top: 12px;
+  border-radius: 14px !important;
+  background: #eef2ff !important;
+  color: #4254d0 !important;
+  border: none !important;
+  font-weight: 700 !important;
+}
+
+.doctor-session-line {
+  display: block;
+  font-size: 13px;
+  color: #475467;
+  line-height: 1.7;
+}
+
+.doctor-session-subtitle {
+  margin-bottom: 10px;
+  font-size: 15px;
+  font-weight: 700;
+  color: #1f2937;
+}
+
+.doctor-session-status-row {
+  display: flex;
+  gap: 10px;
+  margin-bottom: 12px;
+}
+
+.doctor-session-status-chip {
+  flex: 1;
+  text-align: center;
+  padding: 10px 0;
+  border-radius: 12px;
+  background: #eef2f7;
+  color: #667085;
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.doctor-session-status-chip.active {
+  background: linear-gradient(135deg, #0ea5e9 0%, #2563eb 100%);
+  color: #fff;
+}
+
+.doctor-session-note {
+  width: 100%;
+  min-height: 110px;
+  padding: 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+  box-sizing: border-box;
+  margin-bottom: 12px;
+  font-size: 14px;
+  color: #111827;
+}
+
+.doctor-session-message {
+  padding: 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+  margin-bottom: 10px;
+}
+
+.doctor-session-message.user {
+  border-left: 4px solid #5d69d6;
+}
+
+.doctor-session-message.ai {
+  border-left: 4px solid #00bcd4;
+}
+
+.doctor-session-message-role {
+  font-size: 12px;
+  font-weight: 700;
+  color: #667085;
+}
+
+.doctor-session-message-text {
+  margin-top: 6px;
+  font-size: 14px;
+  color: #111827;
+  line-height: 1.7;
+  white-space: pre-wrap;
+}
+
+.doctor-session-message-time {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #98a2b3;
+}

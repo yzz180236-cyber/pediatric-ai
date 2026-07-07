@@ -1,0 +1,400 @@
+.profile-page {
+  min-height: 100vh;
+  background: linear-gradient(180deg, #f6f8fc 0%, #eef3fb 100%);
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+}
+
+.profile-topbar {
+  padding: 16px 16px 0;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+  color: #344054;
+}
+
+.profile-back {
+  font-size: 14px;
+  font-weight: 600;
+  color: #5d69d6;
+}
+
+.profile-topbar-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #25324a;
+}
+
+.profile-topbar-spacer {
+  width: 28px;
+}
+
+.profile-card {
+  background: #fff;
+  border-radius: 18px;
+  padding: 18px;
+  box-shadow: 0 10px 30px rgba(30, 42, 80, 0.08);
+}
+
+.profile-card-spacing {
+  margin: 0 16px;
+}
+
+.profile-scroll {
+  flex: 1;
+  min-height: 0;
+  padding-bottom: 120px;
+  box-sizing: border-box;
+}
+
+.profile-overview {
+  display: flex;
+  gap: 10px;
+  margin: 16px 0 18px;
+}
+
+.profile-overview-item {
+  flex: 1;
+  padding: 12px 10px;
+  border-radius: 14px;
+  background: linear-gradient(180deg, #f8faff 0%, #eef2ff 100%);
+  box-shadow: inset 0 0 0 1px rgba(199, 210, 254, 0.55);
+}
+
+.profile-overview-label {
+  font-size: 12px;
+  color: #667085;
+}
+
+.profile-overview-value {
+  margin-top: 6px;
+  font-size: 16px;
+  font-weight: 700;
+  color: #25324a;
+  line-height: 1.4;
+}
+
+.profile-section {
+  margin-top: 18px;
+  padding: 18px 16px;
+  border-radius: 16px;
+  background: linear-gradient(180deg, #ffffff 0%, #fafbff 100%);
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.7);
+}
+
+.profile-section:first-of-type {
+  margin-top: 0;
+  padding-top: 18px;
+}
+
+.profile-section-title {
+  margin-bottom: 14px;
+  font-size: 17px;
+  font-weight: 700;
+  color: #25324a;
+}
+
+.profile-section-tip {
+  margin-bottom: 14px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #667085;
+}
+
+.profile-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #25324a;
+  margin-bottom: 8px;
+}
+
+.profile-tip {
+  font-size: 13px;
+  color: #6c778c;
+  margin-bottom: 16px;
+}
+
+.profile-field {
+  margin-bottom: 14px;
+}
+
+.profile-label {
+  margin-bottom: 8px;
+  font-size: 14px;
+  font-weight: 600;
+  color: #344054;
+}
+
+.profile-field-hint {
+  margin-top: 8px;
+  font-size: 12px;
+  line-height: 1.6;
+  color: #98a2b3;
+}
+
+.profile-date-trigger {
+  display: flex;
+  align-items: center;
+  min-height: 48px;
+  padding: 0 14px;
+  border-radius: 14px;
+  background: #f3f5fa;
+  box-sizing: border-box;
+}
+
+.profile-date-trigger.disabled {
+  opacity: 0.6;
+}
+
+.profile-date-value {
+  font-size: 15px;
+  color: #25324a;
+  font-weight: 500;
+}
+
+.profile-date-value.placeholder {
+  color: #98a2b3;
+}
+
+.profile-gender-row {
+  display: flex;
+  gap: 10px;
+}
+
+.profile-gender-chip {
+  flex: 1;
+  text-align: center;
+  padding: 10px 0;
+  border-radius: 12px;
+  background: #f3f5fa;
+  color: #667085;
+  font-size: 14px;
+  font-weight: 600;
+}
+
+.profile-gender-chip.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+  color: #fff;
+}
+
+.profile-gender-chip.readonly {
+  cursor: default;
+}
+
+.profile-textarea {
+  width: 100%;
+  min-height: 120px;
+  padding: 12px;
+  border: none;
+  border-radius: 14px;
+  background: #f3f5fa;
+  box-sizing: border-box;
+  font-size: 14px;
+  color: #344054;
+}
+
+.profile-save-btn {
+  height: 52px !important;
+  border: none !important;
+  border-radius: 16px !important;
+  color: #fff !important;
+  font-size: 17px !important;
+  font-weight: 700 !important;
+}
+
+.profile-save-btn::after {
+  border: none !important;
+}
+
+.profile-save-btn.active {
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+  box-shadow: 0 12px 26px rgba(102, 126, 234, 0.28) !important;
+}
+
+.profile-save-btn.inactive {
+  background: linear-gradient(135deg, #cbd5e1 0%, #94a3b8 100%) !important;
+  box-shadow: none !important;
+}
+
+.profile-bottom-bar {
+  position: sticky;
+  bottom: 0;
+  padding: 12px 16px calc(12px + env(safe-area-inset-bottom));
+  background: linear-gradient(180deg, rgba(246, 248, 252, 0) 0%, rgba(246, 248, 252, 0.94) 28%, #f6f8fc 100%);
+  backdrop-filter: blur(8px);
+  box-sizing: border-box;
+}
+
+.profile-save-btn-sticky {
+  margin-top: 0;
+}
+
+.profile-refresh-btn {
+  margin-top: 10px;
+  height: 44px !important;
+  border: none !important;
+  border-radius: 14px !important;
+  background: #eef2f7 !important;
+  color: #5b6577 !important;
+  font-size: 15px !important;
+  font-weight: 600 !important;
+}
+
+.profile-chart-card {
+  padding: 6px 0 0;
+}
+
+.profile-dietary-editor {
+  margin-bottom: 14px;
+  padding: 14px 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.profile-dietary-input {
+  background: #eef2f7 !important;
+  border-radius: 12px !important;
+}
+
+.profile-dietary-input-gap {
+  margin-top: 10px;
+}
+
+.profile-dietary-save {
+  margin-top: 12px;
+  height: 46px !important;
+  border-radius: 14px !important;
+  background: linear-gradient(135deg, #667eea 0%, #764ba2 100%) !important;
+  border: none !important;
+  color: #fff !important;
+  font-weight: 700 !important;
+}
+
+.profile-dietary-cancel {
+  margin-top: 10px;
+  background: #eef2f7 !important;
+  color: #5b6577 !important;
+  border-radius: 14px !important;
+  border: none !important;
+}
+
+.profile-dietary-list {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.profile-dietary-empty {
+  padding: 14px 12px;
+  border-radius: 14px;
+  background: #f3f5fa;
+  color: #98a2b3;
+  font-size: 14px;
+}
+
+.profile-dietary-item {
+  padding: 14px 12px;
+  border-radius: 14px;
+  background: #f3f5fa;
+}
+
+.profile-dietary-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.profile-dietary-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.profile-dietary-food {
+  font-size: 15px;
+  font-weight: 700;
+  color: #25324a;
+  margin-bottom: 6px;
+}
+
+.profile-dietary-delete {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #d9534f;
+}
+
+.profile-dietary-edit {
+  flex-shrink: 0;
+  font-size: 13px;
+  font-weight: 700;
+  color: #5d69d6;
+}
+
+.profile-dietary-text {
+  font-size: 13px;
+  color: #475467;
+  line-height: 1.5;
+}
+
+.profile-dietary-text.warning {
+  color: #9a6700;
+}
+
+.profile-dietary-time {
+  margin-top: 8px;
+  font-size: 12px;
+  color: #98a2b3;
+}
+
+.profile-growth-list {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.profile-growth-item {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 14px 12px;
+  border-radius: 14px;
+  background: #f3f5fa;
+}
+
+.profile-growth-month {
+  font-size: 15px;
+  font-weight: 700;
+  color: #25324a;
+}
+
+.profile-growth-weight {
+  margin-top: 4px;
+  font-size: 13px;
+  color: #667085;
+}
+
+.profile-growth-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+.profile-growth-action {
+  font-size: 13px;
+  font-weight: 700;
+}
+
+.profile-growth-action.edit {
+  color: #5d69d6;
+}
+
+.profile-growth-action.delete {
+  color: #d9534f;
+}

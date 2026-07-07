@@ -1,0 +1,12 @@
+#!/usr/bin/expect -f
+set timeout -1
+spawn npx -y @tarojs/cli init frontend --name frontend --description frontend --typescript --template default --autoInstall false
+expect {
+  "请选择框架" { send "\r"; exp_continue }
+  "ES5" { send "N\r"; exp_continue }
+  "CSS" { send "\r"; exp_continue }
+  "包管理工具" { send "\r"; exp_continue }
+  "编译工具" { send "\r"; exp_continue }
+  "模板" { send "\r"; exp_continue }
+  eof
+}

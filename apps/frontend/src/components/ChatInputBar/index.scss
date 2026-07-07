@@ -1,0 +1,127 @@
+.chat-input-wrapper {
+  background: #fff;
+  border-top: 1px solid #eaecef;
+  display: flex;
+  flex-direction: column;
+  padding-bottom: env(safe-area-inset-bottom);
+
+  .image-preview-area {
+    padding: 12px 16px 0;
+    position: relative;
+    display: inline-block;
+    align-self: flex-start;
+
+    .preview-img {
+      width: 60px;
+      height: 60px;
+      border-radius: 8px;
+      border: 1px solid #e0e0e0;
+      object-fit: cover;
+    }
+
+    .close-btn {
+      position: absolute;
+      top: 4px;
+      right: 8px;
+      width: 18px;
+      height: 18px;
+      background: rgba(0, 0, 0, 0.5);
+      border-radius: 50%;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+    }
+  }
+
+  .chat-input-bar {
+    display: flex;
+    align-items: center;
+    padding: 12px 16px;
+    gap: 12px;
+
+    .action-icons {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+
+      .action-icon {
+        color: #666;
+        cursor: pointer;
+        transition: color 0.2s;
+
+        &:hover {
+          color: #7b5eea;
+        }
+      }
+    }
+
+    .chat-input {
+      flex: 1;
+      background-color: #f5f6f8 !important;
+      border-radius: 20px !important;
+      padding: 0 16px !important;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      
+      .nut-input-box {
+        background: transparent !important;
+        width: 100%;
+      }
+      
+      .nut-input-value {
+        width: 100% !important;
+        background: transparent !important;
+      }
+    }
+
+    .chat-send-btn {
+      background: linear-gradient(135deg, #7b5eea 0%, #5d3ebc 100%) !important;
+      border: none !important;
+      border-radius: 20px !important;
+      height: 40px !important;
+      padding: 0 20px !important;
+      color: #fff !important;
+      font-weight: 500;
+      font-size: 14px;
+      box-shadow: 0 4px 12px rgba(123, 94, 234, 0.3) !important;
+    }
+
+    .chat-stop-btn-wrapper {
+      position: relative;
+      width: 40px;
+      height: 40px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      cursor: pointer;
+      background: #f0f0f0;
+      border-radius: 50%;
+      flex-shrink: 0;
+
+      .loading-ring {
+        position: absolute;
+        width: 24px;
+        height: 24px;
+        border: 2px solid #ccc;
+        border-top-color: #666;
+        border-radius: 50%;
+        animation: spin 1s linear infinite;
+      }
+
+      .stop-square {
+        width: 10px;
+        height: 10px;
+        background-color: #666;
+        border-radius: 2px;
+      }
+    }
+  }
+}
+
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "pediatric-ai-workspace",
+  "version": "1.0.0",
+  "private": true,
+  "description": "智慧儿科 AI Agent 系统 - Monorepo",
+  "engines": {
+    "node": ">=18.0.0",
+    "pnpm": ">=8.0.0"
+  },
+  "scripts": {
+    "dev:ai": "cd services/ai-engine && source .venv/bin/activate && uvicorn main:app --host 0.0.0.0 --port 8000 --reload",
+    "dev:frontend": "pnpm --filter frontend dev:h5",
+    "dev:bff": "pnpm --filter bff start:dev",
+    "build:h5": "pnpm --filter frontend build:h5",
+    "build:weapp": "pnpm --filter frontend build:weapp",
+    "compose:up": "docker compose up --build",
+    "docker:build:bff": "docker build -t pediatric-bff:latest -f Dockerfile.bff .",
+    "docker:build:ai": "docker build -t pediatric-ai-engine:latest -f Dockerfile.ai-engine ."
+  },
+  "pnpm": {
+    "overrides": {
+      "webpack": "~5.91.0",
+      "react": "~18.3.1",
+      "react-dom": "~18.3.1",
+      "@types/react": "18.3.31",
+      "@types/react-dom": "~18.3.0"
+    }
+  }
+}

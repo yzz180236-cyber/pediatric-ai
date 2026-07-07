@@ -1,0 +1,219 @@
+.chat-bubble-wrapper {
+  display: flex;
+  margin-bottom: 20px;
+  width: 100%;
+}
+
+.chat-bubble-wrapper.is-user {
+  justify-content: flex-end;
+}
+
+.chat-bubble-wrapper.is-ai {
+  justify-content: flex-start;
+}
+
+/* ─── 气泡基础样式 ─── */
+.chat-bubble-content {
+  max-width: 82%;
+  padding: 12px 16px;
+  border-radius: 16px;
+  font-size: 14px;
+  line-height: 1.65;
+  word-break: break-word;
+}
+
+.chat-bubble-wrapper.is-user .chat-bubble-content {
+  background: linear-gradient(135deg, #7B68EE 0%, #9B88FF 100%);
+  color: #fff;
+  border-bottom-right-radius: 4px;
+  box-shadow: 0 4px 14px rgba(123, 104, 238, 0.3);
+}
+
+.chat-bubble-wrapper.is-ai .chat-bubble-content {
+  background-color: #fff;
+  color: #2c2c3a;
+  border-bottom-left-radius: 4px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+}
+
+.chat-bubble-content.is-error {
+  color: #f5222d;
+  background-color: #fff1f0;
+  border: 1PX solid #ffa39e;
+}
+
+/* ─── 文本区域 ─── */
+.text-content {
+  word-break: break-word;
+}
+
+/* ─── marked 渲染的 HTML 区域样式 ─── */
+.md-body {
+  font-size: 14px;
+  line-height: 1.7;
+  color: #2c2c3a;
+  word-break: break-word;
+}
+
+/* 段落 */
+.md-body p {
+  margin: 0 0 8px 0;
+}
+.md-body p:last-child {
+  margin-bottom: 0;
+}
+
+/* 标题 */
+.md-body h1,
+.md-body h2,
+.md-body h3,
+.md-body h4 {
+  font-weight: 700;
+  color: #3d3d6b;
+  margin: 12px 0 6px 0;
+  line-height: 1.4;
+}
+.md-body h1 { font-size: 17px; }
+.md-body h2 { font-size: 15px; }
+.md-body h3 { font-size: 14px; }
+.md-body h4 { font-size: 13px; }
+
+/* 加粗 / 斜体 */
+.md-body strong {
+  font-weight: 700;
+  color: #3d3d6b;
+}
+.md-body em {
+  font-style: italic;
+  color: #5a5a8a;
+}
+
+/* 行内代码 */
+.md-body code {
+  font-family: 'SF Mono', 'Fira Code', monospace;
+  font-size: 12.5px;
+  background: rgba(100, 80, 220, 0.08);
+  color: #6450dc;
+  border-radius: 4px;
+  padding: 1px 5px;
+}
+
+/* 有序列表 */
+.md-body ol {
+  margin: 6px 0 8px 0;
+  padding: 0;
+  list-style: none;
+  counter-reset: ol-counter;
+}
+.md-body ol > li {
+  position: relative;
+  padding-left: 28px;
+  margin-bottom: 8px;
+  counter-increment: ol-counter;
+}
+.md-body ol > li::before {
+  content: counter(ol-counter);
+  position: absolute;
+  left: 0;
+  top: 2px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7B68EE 0%, #9B88FF 100%);
+  color: #fff;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+  box-sizing: border-box;
+}
+
+/* 无序列表 */
+.md-body ul {
+  margin: 4px 0 6px 0;
+  padding: 0;
+  list-style: none;
+}
+.md-body ul > li {
+  position: relative;
+  padding-left: 14px;
+  margin-bottom: 4px;
+}
+.md-body ul > li::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 8px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: linear-gradient(135deg, #7B68EE 0%, #9B88FF 100%);
+}
+
+/* 嵌套列表 */
+.md-body li > ul,
+.md-body li > ol {
+  margin-top: 6px;
+  margin-bottom: 2px;
+  /* 因为外层 li 已经有 padding-left，这里不需要再额外增加太多缩进，保持对齐即可 */
+}
+
+/* 引用块（免责声明）*/
+.md-body blockquote {
+  margin: 10px 0 0 0;
+  padding: 8px 12px;
+  background: rgba(245, 34, 45, 0.05);
+  border-left: 3px solid #ff7875;
+  border-radius: 0 6px 6px 0;
+  color: #c0392b;
+  font-size: 12px;
+}
+.md-body blockquote p {
+  margin: 0;
+  color: #c0392b;
+}
+
+/* ─── 引用来源 ─── */
+.citations-area {
+  margin-top: 10PX;
+  padding-top: 8PX;
+  border-top: 1PX solid rgba(0,0,0,0.06);
+}
+
+.citation-tag {
+  font-size: 11PX;
+  color: #888;
+  background: #f0f2f5;
+  display: inline-block;
+  padding: 4PX 8PX;
+  border-radius: 4PX;
+  margin-top: 4PX;
+  margin-right: 4PX;
+}
+
+/* ─── 加载动画 ─── */
+.loading-dots {
+  display: inline-flex;
+  align-items: center;
+  height: 20PX;
+}
+
+.loading-dots .dot {
+  width: 7PX;
+  height: 7PX;
+  background: linear-gradient(135deg, #7B68EE 0%, #9B88FF 100%);
+  border-radius: 50%;
+  margin-right: 5PX;
+  animation: loading-bounce 1.4s infinite ease-in-out both;
+}
+
+.loading-dots .dot:nth-child(1) { animation-delay: -0.32s; }
+.loading-dots .dot:nth-child(2) { animation-delay: -0.16s; }
+.loading-dots .dot:nth-child(3) { margin-right: 0; }
+
+@keyframes loading-bounce {
+  0%, 80%, 100% { transform: scale(0); }
+  40% { transform: scale(1); }
+}

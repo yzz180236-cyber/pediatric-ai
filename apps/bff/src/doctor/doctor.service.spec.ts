@@ -1,0 +1,59 @@
+import { Repository } from 'typeorm';
+import { ChatMessageEntity } from '../database/entities/chat-message.entity';
+import { ChatSessionEntity } from '../database/entities/chat-session.entity';
+import { DietaryRecordEntity } from '../database/entities/dietary-record.entity';
+import { PatientProfileEntity } from '../database/entities/patient-profile.entity';
+import { DoctorService } from './doctor.service';
+
+function createRepoMock<T>() {
+  return {
+    find: jest.fn(),
+    findOne: jest.fn(),
+  } as unknown as jest.Mocked<Repository<T>>;
+}
+
+describe('DoctorService', () => {
+  it('builds workbench summary from sessions and dietary alerts', async () => {
+    const sessionRepo = createRepoMock<ChatSessionEntity>();
+    const messageRepo = createRepoMock<ChatMessageEntity>();
+    const profileRepo = createRepoMock<PatientProfileEntity>();
+    const dietaryRepo = createRepoMock<DietaryRecordEntity>();
+
+    sessionRepo.find.mockResolvedValue([
+      {
+        id: 'session-1',
+        userId: 'user-1',
+        lastActiveAt: new Date('2026-07-07T00:00:00.000Z'),
+      },
+    ] as ChatSessionEntity[]);
+    messageRepo.findOne.mockResolvedValue({
+      content: '宝宝今天发烧，体温 38.2 度',
+      sender: 'user',
+    } as ChatMessageEntity);
+    profileRepo.findOne.mockResolvedValue({
+      birthday: new Date('2025-03-01'),
+      gender: 1,
+      knownAllergensEncrypted: 'cipher',
+    } as PatientProfileEntity);
+    dietaryRepo.find.mockResolvedValue([
+      {
+        id: 'dietary-1',
+        userId: 'user-1',
+        addedFood: '米粉',
+        allergyWarning: '少量尝试观察',
+        createdAt: new Date('2026-07-07T01:00:00.000Z'),
+      },
+    ] as DietaryRecordEntity[]);
+
+    const service = new DoctorService(sessionRepo, messageRepo, profileRepo, dietaryRepo);
+    const result = await service.getWorkbench();
+
+    expect(result.summary).toEqual({
+      totalSessions: 1,
+      activePatients: 1,
+      dietaryAlerts: 1,
+    });
+    expect(result.sessions[0].latestMessagePreview).toContain('宝宝今天发烧');
+    expect(result.dietaryAlerts[0].addedFood).toBe('米粉');
+  });
+});

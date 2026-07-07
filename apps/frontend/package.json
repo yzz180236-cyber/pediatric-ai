@@ -1,0 +1,45 @@
+{
+  "name": "frontend",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "build:weapp": "taro build --type weapp",
+    "build:h5": "taro build --type h5",
+    "dev:weapp": "npm run build:weapp -- --watch",
+    "dev:h5": "npm run build:h5 -- --watch"
+  },
+  "dependencies": {
+    "@nutui/icons-react-taro": "^1.0.0",
+    "@nutui/nutui-react-taro": "^3.0.20",
+    "@pediatric-ai/shared-types": "workspace:*",
+    "@tarojs/components": "4.2.0",
+    "@tarojs/helper": "4.2.0",
+    "@tarojs/plugin-framework-react": "4.2.0",
+    "@tarojs/plugin-html": "4.2.0",
+    "@tarojs/plugin-platform-h5": "4.2.0",
+    "@tarojs/plugin-platform-weapp": "4.2.0",
+    "@tarojs/react": "4.2.0",
+    "@tarojs/runtime": "4.2.0",
+    "@tarojs/shared": "4.2.0",
+    "@tarojs/taro": "4.2.0",
+    "echarts": "^6.1.0",
+    "echarts-for-react": "^3.0.6",
+    "marked": "^18.0.5",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "zustand": "^5.0.14"
+  },
+  "devDependencies": {
+    "@babel/preset-react": "^7.29.7",
+    "@pmmmwh/react-refresh-webpack-plugin": "^0.6.2",
+    "@tarojs/cli": "4.2.0",
+    "@tarojs/vite-runner": "^4.2.0",
+    "@tarojs/webpack5-runner": "4.2.0",
+    "@types/react": "^18.0.0",
+    "@types/webpack-env": "^1.13.6",
+    "babel-preset-taro": "4.2.0",
+    "react-refresh": "^0.18.0",
+    "sass": "^1.69.0",
+    "typescript": "^5.0.0"
+  }
+}

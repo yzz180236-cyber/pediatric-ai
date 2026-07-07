@@ -1,0 +1,87 @@
+.rich-card {
+  background-color: #fff;
+  border-radius: 12PX;
+  padding: 16PX;
+  margin-top: 8PX;
+  border: 1PX solid #eaecef;
+  box-shadow: 0 4PX 12PX rgba(0,0,0,0.03);
+  font-size: 14PX;
+  color: #333;
+}
+
+.rich-card .card-title {
+  font-size: 15PX;
+  font-weight: 600;
+  color: #12b7f5;
+  margin-bottom: 12PX;
+  padding-bottom: 8PX;
+  border-bottom: 1PX dashed #eaecef;
+}
+
+.rich-card .card-content {
+  margin-bottom: 12PX;
+  line-height: 1.6;
+}
+
+.rich-card .info-row {
+  display: flex;
+  justify-content: space-between;
+  margin-top: 8PX;
+  padding: 8PX;
+  background-color: #f7f8fc;
+  border-radius: 6PX;
+}
+
+.rich-card .val {
+  font-weight: 500;
+}
+
+.rich-card .val.warning {
+  color: #f5222d;
+}
+
+.rich-card .card-actions {
+  display: flex;
+  justify-content: center;
+}
+
+.rich-card .card-actions-row {
+  display: flex;
+  justify-content: space-between;
+  gap: 12PX;
+  margin-top: 12PX;
+}
+
+/* OCR 卡片专用 */
+.ocr-table {
+  border: 1PX solid #eaecef;
+  border-radius: 8PX;
+  overflow: hidden;
+  margin-bottom: 10PX;
+}
+
+.ocr-row {
+  display: flex;
+  border-bottom: 1PX solid #eaecef;
+}
+.ocr-row:last-child {
+  border-bottom: none;
+}
+.ocr-row.header {
+  background-color: #f7f8fc;
+  font-weight: 600;
+}
+.ocr-row .col {
+  flex: 1;
+  padding: 8PX;
+  text-align: center;
+  font-size: 13PX;
+}
+.ocr-row .abnormal {
+  color: #f5222d;
+  font-weight: bold;
+}
+.card-footer {
+  font-size: 12PX;
+  color: #999;
+}
