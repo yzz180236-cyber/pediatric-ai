@@ -66,3 +66,9 @@ class GraphState(TypedDict, total=False):
     
     # 患儿档案摘要（由 BFF 从数据库读取后注入，包含月龄/过敏史/近期病史等跨会话记忆）
     patient_profile: str
+
+    # 患儿结构化上下文（年龄/月龄、近期体重、过敏史等）
+    patient_context: Dict[str, Any]
+
+    # 结构化分诊/安全评估结果
+    assessment: Dict[str, Any]

@@ -30,6 +30,7 @@ export default function Index() {
     handleClearChat,
     doUpload,
     handleUploadImage,
+    handleRichCardAction,
     loadSessions,
     loadSessionMessages,
     createSession,
@@ -264,7 +265,7 @@ export default function Index() {
             >
               {messages.map((msg) => (
                 <View key={msg.id} id={`msg-${msg.id}`}>
-                  <ChatBubble msg={msg} />
+                  <ChatBubble msg={msg} onAction={handleRichCardAction} />
                 </View>
               ))}
               {messages.length > 0 && (

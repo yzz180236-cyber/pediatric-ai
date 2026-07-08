@@ -262,6 +262,14 @@ export class PatientService {
         }
       }
 
+      const latestGrowthRecord = await this.growthRecordRepo.findOne({
+        where: { userId },
+        order: { ageMonths: 'DESC', createdAt: 'DESC' },
+      });
+      if (latestGrowthRecord) {
+        lines.push(`- 最近体重：${Number(latestGrowthRecord.weight)} kg（${latestGrowthRecord.ageMonths} 月龄记录）`);
+      }
+
       if (profile.gender) {
         lines.push(`- 性别：${profile.gender === 1 ? '男' : profile.gender === 2 ? '女' : '未知'}`);
       }
@@ -286,6 +294,44 @@ export class PatientService {
       const err = error as Error;
       this.logger.error('读取患儿档案失败: ' + err.message);
       return '';
+    }
+  }
+
+  async getClinicalContext(userId: string): Promise<Record<string, unknown>> {
+    try {
+      const profile = await this.getOrCreateProfile(userId);
+      profile.decryptSensitiveFields(this.cryptoService);
+
+      const latestGrowthRecord = await this.growthRecordRepo.findOne({
+        where: { userId },
+        order: { ageMonths: 'DESC', createdAt: 'DESC' },
+      });
+
+      const now = new Date();
+      const birth = new Date(profile.birthday);
+      const ageMonths = Number.isNaN(birth.getTime())
+        ? null
+        : Math.max(0, Math.floor((now.getTime() - birth.getTime()) / (1000 * 60 * 60 * 24 * 30.44)));
+
+      return {
+        displayName: profile.displayName ?? '未命名宝宝',
+        ageMonths,
+        ageYears: ageMonths !== null ? Number((ageMonths / 12).toFixed(1)) : null,
+        gender: profile.gender,
+        knownAllergens: profile.knownAllergens
+          ? profile.knownAllergens
+              .split(/[、,，\s]+/)
+              .map((item) => item.trim())
+              .filter(Boolean)
+          : [],
+        latestWeightKg: latestGrowthRecord ? Number(latestGrowthRecord.weight) : null,
+        latestWeightAgeMonths: latestGrowthRecord?.ageMonths ?? null,
+        hasCompleteProfile: Boolean(profile.displayName && profile.birthday && profile.gender !== undefined),
+      };
+    } catch (error: unknown) {
+      const err = error as Error;
+      this.logger.error('读取患儿结构化上下文失败: ' + err.message);
+      return {};
     }
   }
 

@@ -15,6 +15,7 @@ class Citation(TypedDict):
     title: str
     chapter: str
     content: str
+    sourceType: str
 
 class PediatricRAG:
     def __init__(self):
@@ -65,7 +66,8 @@ class PediatricRAG:
                     citations.append({
                         "title": hit["entity"].get("source_title", "未知来源"),
                         "chapter": hit["entity"].get("source_chapter", "未知章节"),
-                        "content": hit["entity"].get("text", "")
+                        "content": hit["entity"].get("text", ""),
+                        "sourceType": "guideline",
                     })
                     
             context = "\n\n".join([c["content"] for c in citations]) if citations else "暂无相关指南数据。"

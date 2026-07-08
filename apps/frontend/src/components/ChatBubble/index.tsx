@@ -3,6 +3,7 @@ import { View, Text, Image } from "@tarojs/components";
 import { DietaryFormCard } from "../RichCards/DietaryFormCard";
 import { OcrResultCard } from "../RichCards/OcrResultCard";
 import { FollowupCard } from "../RichCards/FollowupCard";
+import { AssessmentCard } from "../RichCards/AssessmentCard";
 import { Message } from "@pediatric-ai/shared-types";
 import "./index.scss";
 import Taro from "@tarojs/taro";
@@ -67,6 +68,8 @@ export function ChatBubble({ msg, onAction }: ChatBubbleProps) {
         return <OcrResultCard payload={msg.payload} />;
       case "followup_card":
         return <FollowupCard payload={msg.payload} onAction={onAction} />;
+      case "assessment_card":
+        return <AssessmentCard payload={msg.payload} onAction={onAction} />;
       default:
         return null;
     }
@@ -91,6 +94,11 @@ export function ChatBubble({ msg, onAction }: ChatBubbleProps) {
   if (thinkContent) {
     allThoughts.push(thinkContent);
   }
+  const citationTypeLabelMap: Record<string, string> = {
+    guideline: "指南引用",
+    safety_rule: "安全规则",
+    model_inference: "模型推断",
+  };
 
   return (
     <View className={`chat-bubble-wrapper ${isUser ? "is-user" : "is-ai"}`}>
@@ -243,6 +251,7 @@ export function ChatBubble({ msg, onAction }: ChatBubbleProps) {
               <View key={i} className="citation-tag">
                 <Text>
                   📚 [{i + 1}] {c.title}
+                  {c.sourceType ? ` · ${citationTypeLabelMap[c.sourceType] || c.sourceType}` : ""}
                 </Text>
               </View>
             ))}

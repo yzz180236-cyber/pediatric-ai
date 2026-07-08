@@ -1,6 +1,7 @@
 import os
 import logging
-from pydantic import BaseModel
+import re
+from pydantic import BaseModel, Field
 from typing import Literal, Dict, List, Optional
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
@@ -34,6 +35,294 @@ class IntentResult(BaseModel):
     reasoning: str
     needs_web_search: bool
     search_query: str
+
+
+class AssessmentResult(BaseModel):
+    triage_level: Literal["home_observation", "visit_within_24h", "clinic_soon", "emergency_now"]
+    triage_reason: str
+    trend_direction: Literal["worsening", "improving", "fluctuating", "stable", "unknown"] = "unknown"
+    trend_reason: str = ""
+    recommended_actions: List[str] = Field(default_factory=list)
+    warning_signals: List[str] = Field(default_factory=list)
+    constraint_warnings: List[str] = Field(default_factory=list)
+    age_band: str = ""
+
+
+def _build_assessment_payload(result: AssessmentResult) -> Dict[str, object]:
+    return {
+        "triageLevel": result.triage_level,
+        "triageReason": result.triage_reason,
+        "trendDirection": result.trend_direction,
+        "trendReason": result.trend_reason,
+        "recommendedActions": result.recommended_actions,
+        "warningSignals": result.warning_signals,
+        "constraintWarnings": result.constraint_warnings,
+        "ageBand": result.age_band,
+    }
+
+
+def _get_age_band(patient_context: Dict[str, object]) -> str:
+    age_months = patient_context.get("ageMonths")
+    if not isinstance(age_months, int):
+        return "年龄信息不足"
+    if age_months <= 3:
+        return "0-3个月"
+    if age_months <= 6:
+        return "4-6个月"
+    if age_months <= 12:
+        return "7-12个月"
+    if age_months <= 36:
+        return "1-3岁"
+    return "3岁以上"
+
+
+def _build_constraint_warnings(patient_context: Dict[str, object], latest_message: str) -> List[str]:
+    warnings: List[str] = []
+    age_months = patient_context.get("ageMonths")
+    weight = patient_context.get("latestWeightKg")
+    allergens = patient_context.get("knownAllergens") or []
+    lower_text = latest_message.lower()
+
+    if age_months is None:
+        warnings.append("缺少准确月龄信息，涉及护理或用药建议时应先补充年龄。")
+    elif isinstance(age_months, int) and age_months < 3:
+        warnings.append("3个月内婴儿属于高敏感年龄段，任何发热或精神反应差都应更谨慎处理。")
+
+    if weight is None:
+        warnings.append("缺少近期体重信息，涉及剂量或喂养强度判断时需线下医生确认。")
+
+    if isinstance(allergens, list) and allergens:
+        warnings.append(f"已知过敏史：{'、'.join(str(item) for item in allergens)}，避免给出相关食物或成分建议。")
+
+    if any(keyword in lower_text for keyword in ["药", "退烧", "抗生素", "布洛芬", "对乙酰氨基酚"]):
+        warnings.append("涉及药物时仅能给出原则性提醒，不能替代医生面诊和处方。")
+
+    return warnings
+
+
+def _detect_symptom_category(text: str) -> str:
+    if re.search(r"发烧|发热|体温|高热|低热", text):
+        return "fever"
+    if re.search(r"咳嗽|咳痰|喉咙|喘|鼻塞|流鼻涕", text):
+        return "cough"
+    if re.search(r"腹泻|拉肚子|呕吐|吐奶|便稀|大便", text):
+        return "gastro"
+    if re.search(r"皮疹|起疹子|红点|红疹|荨麻疹|湿疹", text):
+        return "rash"
+    return "general"
+
+
+SYMPTOM_TEMPLATES: Dict[str, List[Dict[str, object]]] = {
+    "fever": [
+        {"slot": "age", "question": "宝宝现在大概多大了？", "options": ["0-3个月", "4-6个月", "7-12个月", "1-3岁", "3岁以上"]},
+        {"slot": "temperature", "question": "目前测到的最高体温大概是多少？", "options": ["37.3-38°C", "38-39°C", "39°C以上", "还没量体温"]},
+        {"slot": "duration", "question": "发热大概持续多久了？", "options": ["刚开始半天内", "1天左右", "2-3天", "3天以上"]},
+        {"slot": "mental_state", "question": "宝宝精神状态怎么样？", "options": ["精神还可以", "有点蔫", "明显嗜睡/反应差"]},
+    ],
+    "cough": [
+        {"slot": "age", "question": "宝宝现在大概多大了？", "options": ["0-3个月", "4-6个月", "7-12个月", "1-3岁", "3岁以上"]},
+        {"slot": "duration", "question": "咳嗽持续多久了？", "options": ["刚开始半天内", "1-2天", "3-5天", "超过5天"]},
+        {"slot": "breathing_state", "question": "咳嗽时呼吸情况如何？", "options": ["只是偶尔咳", "夜里咳得多", "有喘或呼吸急", "呼吸很费力"]},
+        {"slot": "mental_state", "question": "宝宝精神和吃奶/进食情况如何？", "options": ["精神食欲都还可以", "食欲一般", "精神差/吃得很少"]},
+    ],
+    "gastro": [
+        {"slot": "age", "question": "宝宝现在大概多大了？", "options": ["0-3个月", "4-6个月", "7-12个月", "1-3岁", "3岁以上"]},
+        {"slot": "duration", "question": "腹泻或呕吐持续多久了？", "options": ["刚开始半天内", "1天左右", "2-3天", "3天以上"]},
+        {"slot": "frequency", "question": "这期间大概有多频繁？", "options": ["1-2次", "3-5次", "6次以上", "说不清"]},
+        {"slot": "hydration", "question": "宝宝进食和尿量情况如何？", "options": ["吃奶/喝水正常，尿量正常", "吃得少一些", "尿量变少", "喝不进去/一直吐"]},
+    ],
+    "rash": [
+        {"slot": "age", "question": "宝宝现在大概多大了？", "options": ["0-3个月", "4-6个月", "7-12个月", "1-3岁", "3岁以上"]},
+        {"slot": "duration", "question": "皮疹出现多久了？", "options": ["今天刚出现", "1-2天", "3-5天", "超过5天"]},
+        {"slot": "distribution", "question": "皮疹主要长在哪里？", "options": ["面部", "躯干", "四肢", "全身都有"]},
+        {"slot": "fever_with_rash", "question": "起疹子同时有发热或精神差吗？", "options": ["没有", "有低热", "有高热", "精神明显差"]},
+    ],
+}
+
+
+def _extract_template_slots(text: str, existing_slots: Dict[str, str]) -> Dict[str, str]:
+    slots = dict(existing_slots)
+
+    age_match = re.search(r"(\d+)\s*(个?月|岁)", text)
+    if age_match and "age" not in slots:
+        slots["age"] = f"{age_match.group(1)}{age_match.group(2)}"
+
+    temp_match = re.search(r"([3-4]\d(?:\.\d)?)\s*(?:度|℃|c)", text, re.IGNORECASE)
+    if temp_match and "temperature" not in slots:
+        slots["temperature"] = f"{temp_match.group(1)}°C"
+
+    duration_match = re.search(r"(半天|一天|1天|2天|3天|[一二三四五六七八九十\d]+天|[一二三四五六七八九十\d]+周)", text)
+    if duration_match and "duration" not in slots:
+        slots["duration"] = duration_match.group(1)
+
+    if re.search(r"精神.*(好|可以)|精神还行|精神尚可", text) and "mental_state" not in slots:
+        slots["mental_state"] = "精神还可以"
+    elif re.search(r"精神差|反应差|蔫|嗜睡", text) and "mental_state" not in slots:
+        slots["mental_state"] = "精神差"
+
+    if re.search(r"呼吸困难|喘不上气|喘|呼吸急|呼吸费力", text) and "breathing_state" not in slots:
+        slots["breathing_state"] = "有喘或呼吸费力"
+
+    if re.search(r"尿量减少|尿少|半天没尿|一天没尿", text) and "hydration" not in slots:
+        slots["hydration"] = "尿量变少"
+
+    if re.search(r"呕吐.*(\d+)[次遍]", text) and "frequency" not in slots:
+        slots["frequency"] = re.search(r"呕吐.*(\d+)[次遍]", text).group(1) + "次"
+
+    return slots
+
+
+def _build_structured_summary(
+    category: str,
+    slots: Dict[str, str],
+    latest_message: str,
+    assessment: Dict[str, object],
+) -> str:
+    chief_complaint = slots.get("symptom") or latest_message[:60]
+    duration = slots.get("duration", "未明确")
+    age = slots.get("age", assessment.get("ageBand", "年龄信息不足"))
+    warning_signals = assessment.get("warningSignals", []) or []
+    triage_label = assessment.get("triageLevel", "visit_within_24h")
+    trend_direction = assessment.get("trendDirection", "unknown")
+    trend_reason = assessment.get("trendReason", "")
+    triage_map = {
+        "home_observation": "居家观察",
+        "visit_within_24h": "24小时内就医",
+        "clinic_soon": "尽快门诊",
+        "emergency_now": "立即急诊",
+    }
+    trend_map = {
+        "worsening": "较前加重",
+        "improving": "较前缓解",
+        "fluctuating": "反复波动",
+        "stable": "暂无明显变化",
+        "unknown": "趋势暂不明确",
+    }
+
+    summary_parts = [
+        f"主诉：{chief_complaint}",
+        f"年龄分层：{age}",
+        f"病程：{duration}",
+        f"症状类别：{category}",
+        f"分诊结论：{triage_map.get(str(triage_label), '24小时内就医')}",
+        f"病程趋势：{trend_map.get(str(trend_direction), '趋势暂不明确')}",
+    ]
+    if trend_reason:
+        summary_parts.append(f"趋势依据：{trend_reason}")
+    if warning_signals:
+        summary_parts.append(f"危险信号：{'、'.join(str(item) for item in warning_signals)}")
+    return "；".join(summary_parts)
+
+
+def _build_evidence_layers(
+    assessment: Dict[str, object],
+    citations: List[Dict[str, object]],
+) -> List[Dict[str, str]]:
+    layers: List[Dict[str, str]] = []
+
+    if citations:
+        top_refs = []
+        for citation in citations[:2]:
+            title = str(citation.get("title", "指南来源"))
+            chapter = str(citation.get("chapter", "") or "")
+            ref = f"{title} / {chapter}" if chapter else title
+            top_refs.append(ref)
+        layers.append({
+            "sourceType": "guideline",
+            "title": "指南引用",
+            "content": "；".join(top_refs),
+        })
+
+    safety_bits: List[str] = []
+    if assessment.get("warningSignals"):
+        safety_bits.append(f"危险信号：{'、'.join(str(item) for item in assessment['warningSignals'])}")
+    if assessment.get("constraintWarnings"):
+        safety_bits.extend(str(item) for item in assessment["constraintWarnings"][:2])
+    if safety_bits:
+        layers.append({
+            "sourceType": "safety_rule",
+            "title": "安全规则",
+            "content": "；".join(safety_bits),
+        })
+
+    inference_bits: List[str] = []
+    if assessment.get("triageReason"):
+        inference_bits.append(f"分诊判断：{assessment['triageReason']}")
+    if assessment.get("trendReason"):
+        inference_bits.append(f"趋势判断：{assessment['trendReason']}")
+    if inference_bits:
+        layers.append({
+            "sourceType": "model_inference",
+            "title": "模型推断",
+            "content": "；".join(inference_bits),
+        })
+
+    return layers
+
+
+def _infer_trend_from_history(history: List[dict], latest_message: str) -> Dict[str, str]:
+    previous_user_texts = [
+        str(item.get("content", "")).strip()
+        for item in history
+        if item.get("role") == "user" and str(item.get("content", "")).strip()
+    ]
+    if not previous_user_texts:
+        return {"trend_direction": "unknown", "trend_reason": "缺少足够的历史问诊描述，无法比较前后变化。"}
+
+    merged_previous = "\n".join(previous_user_texts[-3:])
+    current_text = latest_message
+
+    worsening_markers = ["加重", "更严重", "越来越重", "反而更差", "还是高烧", "精神更差", "尿更少", "咳得更厉害"]
+    improving_markers = ["好转", "缓解", "退烧了", "精神好多了", "比昨天好", "症状轻了", "咳得少了"]
+    fluctuating_markers = ["反复", "一会好一会差", "时好时坏", "退了又烧", "反复发烧"]
+
+    if any(marker in current_text for marker in fluctuating_markers):
+        return {"trend_direction": "fluctuating", "trend_reason": "当前描述提示症状存在反复或时好时坏。"}
+    if any(marker in current_text for marker in worsening_markers):
+        return {"trend_direction": "worsening", "trend_reason": "当前描述明确提到较前加重或出现更差表现。"}
+    if any(marker in current_text for marker in improving_markers):
+        return {"trend_direction": "improving", "trend_reason": "当前描述明确提到较前缓解或整体好转。"}
+
+    if any(marker in merged_previous for marker in ["发烧", "发热"]) and any(marker in current_text for marker in ["已经退烧", "退烧了", "不烧了"]):
+        return {"trend_direction": "improving", "trend_reason": "历史中有发热描述，而当前表示已退热。"}
+    if any(marker in merged_previous for marker in ["咳嗽", "腹泻", "呕吐", "皮疹"]) and any(marker in current_text for marker in ["还是", "仍然", "没有缓解"]):
+        return {"trend_direction": "stable", "trend_reason": "历史已有相同症状描述，当前反馈为仍持续存在。"}
+
+    return {"trend_direction": "unknown", "trend_reason": "历史与当前描述不足以支持明确的加重或缓解判断。"}
+
+
+EMERGENCY_RULES = [
+    {
+        "signal": "惊厥或抽搐",
+        "patterns": [r"惊厥", r"抽搐", r"抽风", r"高热惊厥"],
+        "reason": "描述中出现惊厥或抽搐，属于儿科急症，需要立即线下急救评估。",
+    },
+    {
+        "signal": "呼吸困难或发绀",
+        "patterns": [r"呼吸困难", r"喘不上气", r"口唇发紫", r"嘴唇发紫", r"发绀", r"憋气", r"三凹征", r"胸凹"],
+        "reason": "出现呼吸困难、缺氧或发绀描述，可能提示呼吸衰竭风险。",
+    },
+    {
+        "signal": "意识差或持续嗜睡",
+        "patterns": [r"叫不醒", r"意识不清", r"嗜睡", r"反应差", r"昏睡"],
+        "reason": "存在意识状态异常或反应差，需尽快排除严重感染或神经系统问题。",
+    },
+    {
+        "signal": "明显脱水或尿量减少",
+        "patterns": [r"半天没尿", r"一天没尿", r"尿量减少", r"哭.*没眼泪", r"前囟.*凹陷"],
+        "reason": "尿量明显减少或脱水体征提示循环容量不足风险，需要尽快线下补液评估。",
+    },
+    {
+        "signal": "持续高热",
+        "patterns": [r"高烧不退", r"持续高热", r"40[度℃]", r"39\.5", r"39\.6", r"39\.7", r"39\.8", r"39\.9"],
+        "reason": "持续高热或超高热属于高风险表现，需要尽快线下评估感染及并发症。",
+    },
+    {
+        "signal": "反复呕吐",
+        "patterns": [r"反复呕吐", r"一直吐", r"喷射性呕吐", r"吐了好多次"],
+        "reason": "持续或喷射性呕吐可能提示脱水、颅压问题或严重胃肠道疾病。",
+    },
+]
 
 def router_node(state: GraphState):
     """意图识别节点：使用 LLM 零样本分类识别用户意图"""
@@ -83,7 +372,7 @@ def route_after_router(state: GraphState) -> str:
         return "web_search"
     intent = state.get("intent", "general")
     if intent == "medical":
-        return "slot_filling"
+        return "emergency_guard"
     if intent == "report":
         return "ocr"   # 报告分析先走 OCR 提取
     return "chat"
@@ -112,10 +401,63 @@ def route_after_web_search(state: GraphState) -> str:
     """网搜之后的再次路由，走回原来的逻辑分支"""
     intent = state.get("intent", "general")
     if intent == "medical":
-        return "slot_filling"
+        return "emergency_guard"
     if intent == "report":
         return "rag"
     return "chat"
+
+
+def emergency_guard_node(state: GraphState):
+    """危险信号前置熔断：命中急症信号时不再继续普通问诊链路"""
+    trace_id = state.get("trace_id", "unknown")
+    patient_context = state.get("patient_context", {}) or {}
+    text_parts = list(state.get("messages", []))
+    for history_item in state.get("history", []):
+        content = history_item.get("content")
+        if content:
+            text_parts.append(str(content))
+    merged_text = "\n".join(text_parts)
+
+    matched_signals: List[str] = []
+    matched_reasons: List[str] = []
+    for rule in EMERGENCY_RULES:
+        if any(re.search(pattern, merged_text, re.IGNORECASE) for pattern in rule["patterns"]):
+            matched_signals.append(rule["signal"])
+            matched_reasons.append(rule["reason"])
+
+    if not matched_signals:
+        return {}
+
+    logger.warning(f"[{trace_id}] 命中危险信号熔断: {matched_signals}")
+    assessment = _build_assessment_payload(
+        AssessmentResult(
+            triage_level="emergency_now",
+            triage_reason="；".join(matched_reasons),
+            recommended_actions=[
+                "请立即前往最近的儿科急诊或呼叫急救，不要继续等待线上问诊结论。",
+                "途中持续观察呼吸、意识和抽搐情况，避免自行口服复杂药物。",
+                "尽量保留体温变化、呕吐次数和既往病史，便于急诊医生快速判断。",
+            ],
+            warning_signals=matched_signals,
+            constraint_warnings=_build_constraint_warnings(patient_context, merged_text),
+            age_band=_get_age_band(patient_context),
+        )
+    )
+    reply = (
+        "### 紧急就医提示\n"
+        "- 当前分诊级别：**立即急诊**\n"
+        f"- 触发原因：{'；'.join(matched_signals)}\n"
+        "- 建议：请立即前往最近的儿科急诊或呼叫急救，不建议继续等待线上问诊。\n\n"
+        "> ⚠️ 免责声明：以上内容仅供医学参考，不能替代执业医师面诊，不作为最终诊断依据。"
+    )
+    return {"assessment": assessment, "reply": reply}
+
+
+def route_after_emergency_guard(state: GraphState) -> str:
+    assessment = state.get("assessment")
+    if isinstance(assessment, dict) and assessment.get("triageLevel") == "emergency_now":
+        return END
+    return "slot_filling"
 
 class SlotStatus(BaseModel):
     is_complete: bool
@@ -132,6 +474,31 @@ def slot_filling_node(state: GraphState):
     existing_slots = state.get("slots", {})
     
     conversation_text = "\n".join([f"家长的陈述: {m}" for m in all_messages])
+    latest_message = all_messages[-1] if all_messages else ""
+    category = _detect_symptom_category(conversation_text)
+    template_slots = _extract_template_slots(conversation_text, existing_slots)
+
+    if category in SYMPTOM_TEMPLATES:
+        updated_slots = {**template_slots, "symptom_category": category}
+        for template in SYMPTOM_TEMPLATES[category]:
+            slot_name = str(template["slot"])
+            if not updated_slots.get(slot_name):
+                logger.info(f"[{trace_id}] 命中模板化追问: {category}, 缺失 {slot_name}")
+                followup_card = {
+                    "question": template["question"],
+                    "options": template["options"],
+                }
+                return {
+                    "slots": {**updated_slots, "status": "missing"},
+                    "followup_card": followup_card,
+                    "reply": str(template["question"]),
+                }
+
+        if category != "general":
+            if "symptom" not in updated_slots:
+                updated_slots["symptom"] = latest_message[:80]
+            logger.info(f"[{trace_id}] 模板化追问已补齐核心字段: {category}")
+            return {"slots": {**updated_slots, "status": "filled"}}
     
     llm = get_llm(is_vision=False).with_structured_output(SlotStatus)
     prompt = f"""分析以下完整的对话记录，提取儿科问诊关键信息。
@@ -178,6 +545,78 @@ def route_after_slot_filling(state: GraphState) -> str:
         # 如果槽位缺失且已经生成了追问 reply，则提前结束 Graph
         return END
     return "rag"
+
+
+def triage_assessment_node(state: GraphState):
+    """结构化分诊与档案约束评估节点"""
+    trace_id = state.get("trace_id", "unknown")
+    patient_context = state.get("patient_context", {}) or {}
+    slots = state.get("slots", {}) or {}
+    latest_message = state["messages"][-1] if state.get("messages") else ""
+    context = state.get("context", "")
+    citations = state.get("citations", []) or []
+    category = str(slots.get("symptom_category") or _detect_symptom_category(latest_message))
+    history = state.get("history", []) or []
+    trend_hint = _infer_trend_from_history(history, latest_message)
+
+    llm = get_llm(is_vision=False).with_structured_output(AssessmentResult)
+    prompt = f"""你是一名负责儿科线上分诊的资深医生，请根据用户描述、已提取槽位和档案信息，输出结构化分诊结论。
+
+分诊级别定义：
+- home_observation: 可先居家观察
+- visit_within_24h: 建议 24 小时内线下就医
+- clinic_soon: 建议尽快去门诊，不建议继续拖延
+- emergency_now: 建议立即急诊
+
+用户本轮问题：{latest_message}
+已提取槽位：{slots}
+患儿结构化上下文：{patient_context}
+参考知识：{context[:1500]}
+
+要求：
+1. triage_reason 必须说明为什么分到该级别
+2. trend_direction 输出 worsening / improving / fluctuating / stable / unknown
+3. trend_reason 说明你为什么判断为该趋势，可参考这个规则提示：{trend_hint}
+4. recommended_actions 给出 2-4 条可执行建议
+5. warning_signals 填写当前已知的危险信号，没有则留空数组
+6. constraint_warnings 必须考虑年龄、体重、过敏史不足或高风险因素
+7. age_band 输出类似“0-3个月 / 4-6个月 / 7-12个月 / 1-3岁 / 3岁以上 / 年龄信息不足”
+"""
+
+    try:
+        result: AssessmentResult = llm.invoke([HumanMessage(content=prompt)])
+        payload = _build_assessment_payload(result)
+        if not payload["constraintWarnings"]:
+            payload["constraintWarnings"] = _build_constraint_warnings(patient_context, latest_message)
+        if not payload["trendReason"]:
+            payload["trendDirection"] = trend_hint["trend_direction"]
+            payload["trendReason"] = trend_hint["trend_reason"]
+        payload["symptomCategory"] = category
+        payload["summaryText"] = _build_structured_summary(category, slots, latest_message, payload)
+        payload["evidenceLayers"] = _build_evidence_layers(payload, citations)
+        logger.info(f"[{trace_id}] 结构化分诊完成: {payload['triageLevel']}")
+        return {"assessment": payload}
+    except Exception:
+        logger.exception(f"[{trace_id}] triage_assessment_node 异常")
+        fallback = _build_assessment_payload(
+            AssessmentResult(
+                triage_level="visit_within_24h",
+                triage_reason="当前信息不足以完成高置信度分诊，建议结合线下儿科医生进一步评估。",
+                trend_direction=trend_hint["trend_direction"], 
+                trend_reason=trend_hint["trend_reason"],
+                recommended_actions=[
+                    "继续补充体温、持续时间、精神状态和进食尿量信息。",
+                    "若症状持续或加重，请在 24 小时内线下就医。",
+                ],
+                warning_signals=[],
+                constraint_warnings=_build_constraint_warnings(patient_context, latest_message),
+                age_band=_get_age_band(patient_context),
+            )
+        )
+        fallback["symptomCategory"] = category
+        fallback["summaryText"] = _build_structured_summary(category, slots, latest_message, fallback)
+        fallback["evidenceLayers"] = _build_evidence_layers(fallback, citations)
+        return {"assessment": fallback}
 
 def rag_node(state: GraphState):
     """指南检索 RAG 节点"""
@@ -289,8 +728,19 @@ def chat_node(state: GraphState):
 
     # 【P0.1 患儿档案记忆】：从 state 中取出 BFF 注入的患儿档案摘要
     patient_profile = state.get("patient_profile", "").strip()
+    assessment = state.get("assessment", {}) or {}
     # 如果档案不为空，则预备注入到 system_prompt 中作为医生的"病历本"
     patient_profile_block = f"\n\n{patient_profile}\n（请在所有分析和建议中充分利用以上档案信息，它们来自该患儿的历史问诊记录。）" if patient_profile else ""
+    assessment_block = ""
+    if assessment:
+        assessment_block = (
+            "\n\n【系统结构化分诊结果】\n"
+            f"- 分诊级别：{assessment.get('triageLevel')}\n"
+            f"- 分诊原因：{assessment.get('triageReason')}\n"
+            f"- 年龄分层：{assessment.get('ageBand')}\n"
+            f"- 约束提醒：{'；'.join(assessment.get('constraintWarnings', [])) if assessment.get('constraintWarnings') else '无'}\n"
+            "（你的正式答复必须与以上结构化分诊保持一致，不能弱化紧急程度。）"
+        )
 
     if intent == "report":
         system_prompt = f"""你是一名拥有 20 年临床经验的儿科主任医师，当前时间：{current_time}。
@@ -394,6 +844,8 @@ def chat_node(state: GraphState):
     # 【P0.1】将患儿档案摘要注入 system_prompt 头部，作为医生的"病历本"
     if patient_profile_block:
         system_prompt = patient_profile_block + "\n\n---\n\n" + system_prompt
+    if assessment_block:
+        system_prompt += assessment_block
 
     if state.get("ocr_result"):
         import json
@@ -518,28 +970,35 @@ def build_graph():
     
     workflow.add_node("router", router_node)
     workflow.add_node("web_search", web_search_node)
+    workflow.add_node("emergency_guard", emergency_guard_node)
     workflow.add_node("slot_filling", slot_filling_node)
     workflow.add_node("ocr", ocr_extraction_node)
     workflow.add_node("rag", rag_node)
+    workflow.add_node("triage_assessment", triage_assessment_node)
     workflow.add_node("chat", chat_node)
     workflow.add_node("reflection", reflection_node)
     
     # 设定起点
     workflow.set_entry_point("router")
     
-    # 路由判断（medical → slot_filling，report → rag 直接，general → chat, 或走 web_search 前置）
+    # 路由判断（medical → emergency_guard，report → ocr，general → chat, 或走 web_search 前置）
     workflow.add_conditional_edges("router", route_after_router, {
         "web_search": "web_search",
-        "slot_filling": "slot_filling",
+        "emergency_guard": "emergency_guard",
         "rag": "rag",
         "ocr": "ocr",
         "chat": "chat"
     })
     
     workflow.add_conditional_edges("web_search", route_after_web_search, {
-        "slot_filling": "slot_filling",
+        "emergency_guard": "emergency_guard",
         "rag": "rag",
         "chat": "chat"
+    })
+
+    workflow.add_conditional_edges("emergency_guard", route_after_emergency_guard, {
+        "slot_filling": "slot_filling",
+        END: END
     })
     
     # 槽位判断
@@ -550,7 +1009,8 @@ def build_graph():
     
     workflow.add_edge("ocr", "rag")
     
-    workflow.add_edge("rag", "chat")
+    workflow.add_edge("rag", "triage_assessment")
+    workflow.add_edge("triage_assessment", "chat")
     workflow.add_edge("chat", "reflection")
     workflow.add_conditional_edges("reflection", route_after_reflection, {
         "chat": "chat",

@@ -85,3 +85,102 @@
   font-size: 12PX;
   color: #999;
 }
+
+.assessment-card {
+  border: none;
+  box-shadow: 0 10PX 20PX rgba(15, 23, 42, 0.06);
+}
+
+.assessment-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12PX;
+  margin-bottom: 12PX;
+}
+
+.assessment-badge {
+  padding: 6PX 10PX;
+  border-radius: 999PX;
+  font-size: 12PX;
+  font-weight: 700;
+}
+
+.assessment-badge.safe {
+  background: rgba(34, 197, 94, 0.12);
+  color: #15803d;
+}
+
+.assessment-badge.warning {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.assessment-badge.warning-strong {
+  background: rgba(249, 115, 22, 0.14);
+  color: #c2410c;
+}
+
+.assessment-badge.danger {
+  background: rgba(239, 68, 68, 0.14);
+  color: #b42318;
+}
+
+.assessment-age-band {
+  font-size: 12PX;
+  color: #667085;
+}
+
+.assessment-label {
+  display: block;
+  margin-bottom: 6PX;
+  font-size: 13PX;
+  font-weight: 700;
+  color: #344054;
+}
+
+.assessment-text,
+.assessment-list-item {
+  display: block;
+  line-height: 1.7;
+  color: #344054;
+}
+
+.assessment-list-item.muted {
+  color: #667085;
+}
+
+.assessment-warning {
+  display: block;
+  line-height: 1.7;
+  color: #b42318;
+  font-weight: 600;
+}
+
+.assessment-evidence-item {
+  margin-top: 8PX;
+}
+
+.assessment-evidence-badge {
+  display: inline-block;
+  margin-bottom: 4PX;
+  padding: 4PX 8PX;
+  border-radius: 999PX;
+  font-size: 11PX;
+  font-weight: 700;
+}
+
+.assessment-evidence-badge.guideline {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+}
+
+.assessment-evidence-badge.safety_rule {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.assessment-evidence-badge.model_inference {
+  background: rgba(139, 92, 246, 0.12);
+  color: #6d28d9;
+}

@@ -71,6 +71,47 @@ export class ChatService {
     await this.sessionRepository.delete(sessionId);
   }
 
+  async applySessionAction(
+    sessionId: string,
+    userId: string,
+    action: 'mark_followup' | 'request_doctor_review',
+  ): Promise<{ sessionId: string; status: 'active' | 'followup' | 'closed'; doctorNote: string }> {
+    const session = await this.sessionRepository.findOne({ where: { id: sessionId, userId } });
+    if (!session) {
+      throw new InternalServerErrorException('Session not found or forbidden');
+    }
+
+    const latestAiMessage = await this.messageRepository.findOne({
+      where: { sessionId, sender: 'ai' },
+      order: { createdAt: 'DESC' },
+    });
+    const assessment = latestAiMessage?.assessment as Record<string, unknown> | null;
+    const triageReason = typeof assessment?.triageReason === 'string' ? assessment.triageReason : '';
+    const summaryText = typeof assessment?.summaryText === 'string' ? assessment.summaryText : '';
+
+    session.status = 'followup';
+
+    if (action === 'request_doctor_review') {
+      const reviewNote = [
+        '[家长请求医生复核]',
+        summaryText || '',
+        triageReason ? `分诊原因：${triageReason}` : '',
+      ]
+        .filter(Boolean)
+        .join('\n');
+      session.doctorNote = reviewNote;
+    } else if (!session.doctorNote) {
+      session.doctorNote = '[家长标记为需随访]';
+    }
+
+    const saved = await this.sessionRepository.save(session);
+    return {
+      sessionId: saved.id,
+      status: saved.status,
+      doctorNote: saved.doctorNote ?? '',
+    };
+  }
+
   async askAiStream(
     userId: string,
     sessionId: string,
@@ -96,6 +137,7 @@ export class ChatService {
 
       // 【P0.1 核心】读取患儿档案摘要，注入给 AI Engine
       const patientProfile = await this.patientService.getProfileSummary(userId);
+      const patientContext = await this.patientService.getClinicalContext(userId);
       if (patientProfile) {
         this.logger.log(`已为用户 ${userId.slice(0, 8)} 注入患儿档案摘要 (${patientProfile.length} 字符)`);
       }
@@ -104,7 +146,7 @@ export class ChatService {
       const response = await firstValueFrom(
         this.httpService.post(
           `${this.aiEngineUrl}/api/chat/stream`,
-          { sessionId, message, image: resolvedImage, history, patientProfile },
+          { sessionId, message, image: resolvedImage, history, patientProfile, patientContext },
           { responseType: 'stream' }
         )
       );
@@ -116,6 +158,7 @@ export class ChatService {
       let citations: Record<string, unknown>[] = [];
       let finalSlots: Record<string, string> = {};
       let ocrResult: Record<string, unknown> | null = null;
+      let assessment: Record<string, unknown> | null = null;
 
       response.data.on('data', (chunk: Buffer) => {
         buffer += chunk.toString('utf-8');
@@ -136,6 +179,7 @@ export class ChatService {
                 if (data.citations) citations = data.citations as Record<string, unknown>[];
                 if (data.slots) finalSlots = data.slots as Record<string, string>;
                 if (data.ocr_result) ocrResult = data.ocr_result as Record<string, unknown>;
+                if (data.assessment) assessment = data.assessment as Record<string, unknown>;
               } catch {
                 // 忽略解析失败的片段
               }
@@ -155,6 +199,7 @@ export class ChatService {
           content: text,
           thoughts,
           citations,
+          assessment,
           duration: (Date.now() - startTime) / 1000,
         });
 
@@ -167,7 +212,10 @@ export class ChatService {
         if (text.trim().length > 20) {
           // 去掉 think 标签内容，只保留正式回复摘要
           const cleanText = text.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
-          if (cleanText.length > 0) {
+          const structuredSummary = typeof assessment?.summaryText === 'string' ? assessment.summaryText : '';
+          if (structuredSummary) {
+            await this.patientService.appendMedicalHistory(userId, structuredSummary);
+          } else if (cleanText.length > 0) {
             await this.patientService.appendMedicalHistory(userId, cleanText.slice(0, 200));
           }
         }
@@ -176,6 +224,22 @@ export class ChatService {
         if (ocrResult) {
           await this.patientService.updateLastOcrSummary(userId, ocrResult);
         }
+
+        const qualityLog = {
+          event: 'chat_quality_summary',
+          sessionId,
+          userId,
+          hasFollowupCard: Boolean(finalSlots && finalSlots.status === 'missing'),
+          hasAssessment: Boolean(assessment),
+          triageLevel: assessment?.triageLevel ?? null,
+          trendDirection: assessment?.trendDirection ?? null,
+          hasStructuredSummary: Boolean(assessment?.summaryText),
+          evidenceLayerCount: Array.isArray(assessment?.evidenceLayers) ? assessment.evidenceLayers.length : 0,
+          citationCount: citations.length,
+          thoughtCount: thoughts.length,
+          durationSeconds: (Date.now() - startTime) / 1000,
+        };
+        this.logger.log(JSON.stringify(qualityLog));
       });
 
       return response.data as NodeJS.ReadableStream;

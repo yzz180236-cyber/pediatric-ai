@@ -42,6 +42,10 @@ export class ChatMessageEntity extends BaseEntity {
   @Column({ name: 'citations', type: 'jsonb', nullable: true })
   citations: any[] | null;
 
+  // 结构化分诊/安全评估结果
+  @Column({ name: 'assessment', type: 'jsonb', nullable: true })
+  assessment: Record<string, unknown> | null;
+
   // 链路追踪 ID（与 BFF 日志关联）
   @Column({ name: 'trace_id', type: 'varchar', length: 64, nullable: true })
   traceId: string | null;

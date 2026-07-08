@@ -1,3 +1,5 @@
+import type { AssessmentPayload } from './state';
+
 export interface DoctorWorkbenchSessionDto {
   sessionId: string;
   patientUserId: string;
@@ -48,6 +50,7 @@ export interface DoctorWorkbenchSessionDetailDto {
   lastActiveAt: string;
   status: 'active' | 'followup' | 'closed';
   doctorNote: string;
+  latestAssessment: AssessmentPayload | null;
   messages: DoctorWorkbenchMessageDto[];
 }
 

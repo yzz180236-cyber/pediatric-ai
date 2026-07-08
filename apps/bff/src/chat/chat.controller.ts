@@ -3,6 +3,7 @@ import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { ChatService } from './chat.service';
+import type { ChatSessionActionRequest, ChatSessionActionResponse } from '@pediatric-ai/shared-types';
 
 interface UploadedBinaryFile {
   buffer: Buffer;
@@ -50,6 +51,16 @@ export class ChatController {
   async deleteSession(@Param('id') sessionId: string, @Req() req: Request) {
     const userId = this.getUserId(req);
     return await this.chatService.deleteSession(sessionId, userId);
+  }
+
+  @Post('sessions/:id/actions')
+  async applySessionAction(
+    @Param('id') sessionId: string,
+    @Body() body: ChatSessionActionRequest,
+    @Req() req: Request,
+  ): Promise<ChatSessionActionResponse> {
+    const userId = this.getUserId(req);
+    return this.chatService.applySessionAction(sessionId, userId, body.action);
   }
 
   @Post('stream')

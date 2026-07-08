@@ -67,6 +67,102 @@
   color: #1f2937;
 }
 
+.doctor-session-assessment-card {
+  background: linear-gradient(180deg, #fffefe 0%, #fbfcff 100%);
+}
+
+.doctor-session-summary-text {
+  margin-bottom: 14px;
+}
+
+.doctor-session-metric-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.doctor-session-metric-item {
+  padding: 12px;
+  border-radius: 14px;
+  background: #f8fafc;
+}
+
+.doctor-session-metric-label {
+  display: block;
+  font-size: 12px;
+  color: #667085;
+}
+
+.doctor-session-metric-value {
+  display: block;
+  margin-top: 6px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #111827;
+}
+
+.doctor-session-metric-value.triage-home_observation {
+  color: #15803d;
+}
+
+.doctor-session-metric-value.triage-visit_within_24h {
+  color: #b45309;
+}
+
+.doctor-session-metric-value.triage-clinic_soon {
+  color: #c2410c;
+}
+
+.doctor-session-metric-value.triage-emergency_now {
+  color: #b42318;
+}
+
+.doctor-session-detail-block {
+  margin-top: 12px;
+}
+
+.doctor-session-detail-title {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 13px;
+  font-weight: 700;
+  color: #344054;
+}
+
+.doctor-session-detail-title.warning,
+.doctor-session-line.warning {
+  color: #b42318;
+}
+
+.doctor-session-evidence-item {
+  margin-top: 8px;
+}
+
+.doctor-session-evidence-badge {
+  display: inline-block;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.doctor-session-evidence-badge.guideline {
+  background: rgba(59, 130, 246, 0.12);
+  color: #1d4ed8;
+}
+
+.doctor-session-evidence-badge.safety_rule {
+  background: rgba(245, 158, 11, 0.14);
+  color: #b45309;
+}
+
+.doctor-session-evidence-badge.model_inference {
+  background: rgba(139, 92, 246, 0.12);
+  color: #6d28d9;
+}
+
 .doctor-session-status-row {
   display: flex;
   gap: 10px;

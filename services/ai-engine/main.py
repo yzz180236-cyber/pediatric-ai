@@ -39,6 +39,7 @@ class ChatRequest(BaseModel):
     history: List[Dict[str, Any]] = []
     # 患儿档案摘要（由 BFF 读取后注入，包含月龄/过敏史/近期病史等）
     patientProfile: str | None = None
+    patientContext: Dict[str, Any] | None = None
 
 def verify_internal_token(request: Request) -> None:
     token = request.headers.get("x-internal-token")
@@ -78,7 +79,8 @@ def chat_endpoint(request: ChatRequest):
         "messages": [request.message], 
         "image_data": request.image,
         "history": request.history,
-        "patient_profile": request.patientProfile or ""
+        "patient_profile": request.patientProfile or "",
+        "patient_context": request.patientContext or {}
     }, config={"configurable": {"thread_id": request.sessionId or "default"}})
     
     return {
@@ -101,7 +103,8 @@ async def chat_stream_endpoint(request: ChatRequest):
             "messages": [request.message], 
             "image_data": request.image,
             "history": request.history,
-            "patient_profile": request.patientProfile or ""
+            "patient_profile": request.patientProfile or "",
+            "patient_context": request.patientContext or {}
         }, version="v2", config={"configurable": {"thread_id": request.sessionId or "default"}}):
             # 监听节点结束事件以提取详细输出
             if event["event"] == "on_chain_end":
@@ -111,6 +114,9 @@ async def chat_stream_endpoint(request: ChatRequest):
                 # 记录图中产生的任何 reply，以备不时之需
                 if isinstance(output, dict) and "reply" in output:
                     final_reply = output["reply"]
+
+                if isinstance(output, dict) and output.get("assessment"):
+                    yield f"data: {json.dumps({'assessment': output['assessment']}, ensure_ascii=False)}\n\n"
                 
                 if node_name == "rag":
                     citations = output.get("citations", [])
@@ -137,6 +143,9 @@ async def chat_stream_endpoint(request: ChatRequest):
                             yield f"data: {json.dumps({'followup_card': followup_card}, ensure_ascii=False)}\n\n"
                     elif status == "filled":
                         yield f"data: {json.dumps({'thought': '关键体征齐全，准备进行评估...'}, ensure_ascii=False)}\n\n"
+
+                if node_name == "emergency_guard" and output.get("assessment"):
+                    yield f"data: {json.dumps({'thought': '检测到危险信号，已切换到紧急分诊模式。'}, ensure_ascii=False)}\n\n"
 
                         
                 if node_name == "reflection":

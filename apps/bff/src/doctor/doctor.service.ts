@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { InjectRepository } from '@nestjs/typeorm';
 import {
+  AssessmentPayload,
   DoctorDietaryAlertDto,
   DoctorWorkbenchDto,
   DoctorWorkbenchMessageDto,
@@ -103,6 +104,11 @@ export class DoctorService {
       order: { createdAt: 'ASC' },
     });
 
+    const latestAssessmentMessage = [...messages]
+      .reverse()
+      .find((message) => message.sender === 'ai' && message.assessment);
+    const latestAssessment = (latestAssessmentMessage?.assessment as AssessmentPayload | null) ?? null;
+
     const messageDtos: DoctorWorkbenchMessageDto[] = messages.map((message) => ({
       id: message.id,
       sender: message.sender,
@@ -122,6 +128,7 @@ export class DoctorService {
       lastActiveAt: session.lastActiveAt.toISOString(),
       status: session.status,
       doctorNote: session.doctorNote ?? '',
+      latestAssessment,
       messages: messageDtos,
     };
   }

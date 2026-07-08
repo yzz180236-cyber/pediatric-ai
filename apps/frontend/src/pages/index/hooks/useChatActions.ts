@@ -52,6 +52,8 @@ export function useChatActions() {
       imageUrl: m.imageUrl,
       thoughts: m.thoughts,
       citations: m.citations,
+      type: m.assessment ? "assessment_card" : undefined,
+      payload: m.assessment,
       duration: m.duration ? parseFloat(m.duration) : undefined,
     }));
 
@@ -267,6 +269,11 @@ export function useChatActions() {
                     }));
                   }
                   if (data.citations) {
+                    trackEvent("chat_citations_rendered", {
+                      sessionId,
+                      citationCount: data.citations.length,
+                      hasGuideline: data.citations.some((item: any) => item?.sourceType === "guideline"),
+                    });
                     updateMessage(aiMsgId, (msg) => ({
                       ...msg,
                       citations: data.citations,
@@ -279,7 +286,36 @@ export function useChatActions() {
                       payload: data.ocr_result
                     }));
                   }
+                  if (data.assessment) {
+                    trackEvent("chat_assessment_rendered", {
+                      sessionId,
+                      triageLevel: data.assessment.triageLevel,
+                      trendDirection: data.assessment.trendDirection || "unknown",
+                      hasSummary: Boolean(data.assessment.summaryText),
+                      evidenceLayerCount: data.assessment.evidenceLayers?.length || 0,
+                    });
+                    const currentMsg = useChatStore.getState().messages.find((msg) => msg.id === aiMsgId);
+                    if (currentMsg?.type === 'ocr_result') {
+                      addMessage({
+                        id: aiMsgId + 1000,
+                        text: '',
+                        sender: 'ai',
+                        type: 'assessment_card',
+                        payload: data.assessment,
+                      });
+                    } else {
+                      updateMessage(aiMsgId, (msg) => ({
+                        ...msg,
+                        type: 'assessment_card',
+                        payload: data.assessment,
+                      }));
+                    }
+                  }
                   if (data.followup_card) {
+                    trackEvent("chat_followup_card_rendered", {
+                      sessionId,
+                      optionCount: data.followup_card.options?.length || 0,
+                    });
                     // 将追问卡片作为独立的 AI 消息追加，触发 FollowupCard 渲染
                     updateMessage(aiMsgId, (msg) => ({
                       ...msg,
@@ -364,6 +400,11 @@ export function useChatActions() {
                     }));
                   }
                   if (data.citations) {
+                    trackEvent("chat_citations_rendered", {
+                      sessionId,
+                      citationCount: data.citations.length,
+                      hasGuideline: data.citations.some((item: any) => item?.sourceType === "guideline"),
+                    });
                     updateMessage(aiMsgId, (msg) => ({
                       ...msg,
                       citations: data.citations,
@@ -375,6 +416,31 @@ export function useChatActions() {
                       type: 'ocr_result',
                       payload: data.ocr_result
                     }));
+                  }
+                  if (data.assessment) {
+                    trackEvent("chat_assessment_rendered", {
+                      sessionId,
+                      triageLevel: data.assessment.triageLevel,
+                      trendDirection: data.assessment.trendDirection || "unknown",
+                      hasSummary: Boolean(data.assessment.summaryText),
+                      evidenceLayerCount: data.assessment.evidenceLayers?.length || 0,
+                    });
+                    const currentMsg = useChatStore.getState().messages.find((msg) => msg.id === aiMsgId);
+                    if (currentMsg?.type === 'ocr_result') {
+                      addMessage({
+                        id: aiMsgId + 1000,
+                        text: '',
+                        sender: 'ai',
+                        type: 'assessment_card',
+                        payload: data.assessment,
+                      });
+                    } else {
+                      updateMessage(aiMsgId, (msg) => ({
+                        ...msg,
+                        type: 'assessment_card',
+                        payload: data.assessment,
+                      }));
+                    }
                   }
                   if (data.thought) {
                     updateMessage(aiMsgId, (msg) => {
@@ -401,6 +467,11 @@ export function useChatActions() {
 
       if (e.name === "AbortError" || e.errMsg?.includes("abort")) {
         console.log("用户主动中断了请求");
+        trackEvent("chat_stream_aborted", {
+          sessionId,
+          hasImage: Boolean(snapshotImage),
+          inputLength: snapshotText.length,
+        });
         updateMessage(aiMsgId, (msg) => ({
           ...msg,
           text: msg.text ? msg.text + "\n\n[已中止回答]" : "[已中止回答]",
@@ -432,6 +503,55 @@ export function useChatActions() {
         }
       },
     });
+  };
+
+  const handleRichCardAction = async (action: string) => {
+    if (!currentSessionId) {
+      Taro.showToast({ title: "当前会话不存在", icon: "none" });
+      return;
+    }
+
+    if (action === "followup_normal") {
+      trackEvent("chat_followup_option_selected", {
+        sessionId: currentSessionId,
+        option: "followup_normal",
+      });
+      setInputValue("宝宝已退烧，精神状态还可以。");
+      return;
+    }
+
+    if (action === "followup_abnormal") {
+      trackEvent("chat_followup_option_selected", {
+        sessionId: currentSessionId,
+        option: "followup_abnormal",
+      });
+      setInputValue("宝宝仍然发烧，而且精神状态不太好。");
+      return;
+    }
+
+    if (action !== "mark_followup" && action !== "request_doctor_review") {
+      return;
+    }
+
+    try {
+      await ensureAuthenticated();
+      await request(`/chat/sessions/${currentSessionId}/actions`, {
+        method: "POST",
+        data: { action },
+      });
+      await loadSessions();
+      trackEvent("chat_result_action_completed", {
+        sessionId: currentSessionId,
+        action,
+      });
+      Taro.showToast({
+        title: action === "mark_followup" ? "已标记待随访" : "已提交医生复核",
+        icon: "success",
+      });
+    } catch (error) {
+      console.error("执行问诊结果动作失败", error);
+      Taro.showToast({ title: "操作失败", icon: "none" });
+    }
   };
 
   const doUpload = async (fileOrPath: File | string) => {
@@ -518,6 +638,7 @@ export function useChatActions() {
     handleClearChat,
     doUpload,
     handleUploadImage,
+    handleRichCardAction,
     loadSessions,
     loadSessionMessages,
     createSession,

@@ -1,12 +1,12 @@
 import { BadRequestException, NotFoundException } from '@nestjs/common';
-import { Repository } from 'typeorm';
+import { Repository, ObjectLiteral } from 'typeorm';
 import { DietaryRecordEntity } from '../database/entities/dietary-record.entity';
 import { CryptoService } from '../common/services/crypto.service';
 import { GrowthRecordEntity } from '../database/entities/growth-record.entity';
 import { PatientProfileEntity } from '../database/entities/patient-profile.entity';
 import { PatientService } from './patient.service';
 
-function createRepoMock<T>() {
+function createRepoMock<T extends ObjectLiteral>() {
   return {
     find: jest.fn(),
     findOne: jest.fn(),

@@ -14,6 +14,20 @@ export default function DoctorSessionDetailPage() {
   const [status, setStatus] = useState<'active' | 'followup' | 'closed'>('active')
   const [doctorNote, setDoctorNote] = useState('')
   const [saving, setSaving] = useState(false)
+  const latestAssessment = detail?.latestAssessment
+  const triageLabelMap = {
+    home_observation: '居家观察',
+    visit_within_24h: '24小时内就医',
+    clinic_soon: '尽快门诊',
+    emergency_now: '立即急诊',
+  } as const
+  const trendLabelMap = {
+    worsening: '较前加重',
+    improving: '较前缓解',
+    fluctuating: '反复波动',
+    stable: '暂无明显变化',
+    unknown: '趋势暂不明确',
+  } as const
 
   const handleBack = () => {
     if (Taro.getCurrentPages().length > 1) {
@@ -104,6 +118,88 @@ export default function DoctorSessionDetailPage() {
           </Button>
         )}
       </View>
+
+      {latestAssessment && (
+        <View className='doctor-session-card doctor-session-assessment-card'>
+          <View className='doctor-session-subtitle'>智能问诊摘要卡</View>
+          {latestAssessment.summaryText ? (
+            <Text className='doctor-session-line doctor-session-summary-text'>{latestAssessment.summaryText}</Text>
+          ) : (
+            <Text className='doctor-session-line'>暂无结构化问诊摘要</Text>
+          )}
+
+          <View className='doctor-session-metric-grid'>
+            <View className='doctor-session-metric-item'>
+              <Text className='doctor-session-metric-label'>分诊级别</Text>
+              <Text className={`doctor-session-metric-value triage-${latestAssessment.triageLevel}`}>
+                {triageLabelMap[latestAssessment.triageLevel]}
+              </Text>
+            </View>
+            <View className='doctor-session-metric-item'>
+              <Text className='doctor-session-metric-label'>病程趋势</Text>
+              <Text className='doctor-session-metric-value'>
+                {latestAssessment.trendDirection ? trendLabelMap[latestAssessment.trendDirection] : '趋势暂不明确'}
+              </Text>
+            </View>
+            <View className='doctor-session-metric-item'>
+              <Text className='doctor-session-metric-label'>年龄分层</Text>
+              <Text className='doctor-session-metric-value'>{latestAssessment.ageBand || '年龄信息不足'}</Text>
+            </View>
+            <View className='doctor-session-metric-item'>
+              <Text className='doctor-session-metric-label'>症状类别</Text>
+              <Text className='doctor-session-metric-value'>{latestAssessment.symptomCategory || 'general'}</Text>
+            </View>
+          </View>
+
+          <View className='doctor-session-detail-block'>
+            <Text className='doctor-session-detail-title'>分诊原因</Text>
+            <Text className='doctor-session-line'>{latestAssessment.triageReason}</Text>
+          </View>
+
+          {latestAssessment.trendReason ? (
+            <View className='doctor-session-detail-block'>
+              <Text className='doctor-session-detail-title'>趋势依据</Text>
+              <Text className='doctor-session-line'>{latestAssessment.trendReason}</Text>
+            </View>
+          ) : null}
+
+          {latestAssessment.warningSignals?.length ? (
+            <View className='doctor-session-detail-block'>
+              <Text className='doctor-session-detail-title warning'>危险信号</Text>
+              <Text className='doctor-session-line warning'>{latestAssessment.warningSignals.join('、')}</Text>
+            </View>
+          ) : null}
+
+          {latestAssessment.constraintWarnings?.length ? (
+            <View className='doctor-session-detail-block'>
+              <Text className='doctor-session-detail-title'>安全约束提醒</Text>
+              {latestAssessment.constraintWarnings.map((warning, index) => (
+                <Text key={`${warning}-${index}`} className='doctor-session-line'>
+                  - {warning}
+                </Text>
+              ))}
+            </View>
+          ) : null}
+
+          {latestAssessment.evidenceLayers?.length ? (
+            <View className='doctor-session-detail-block'>
+              <Text className='doctor-session-detail-title'>证据来源分层</Text>
+              {latestAssessment.evidenceLayers.map((layer, index) => (
+                <View key={`${layer.sourceType}-${index}`} className='doctor-session-evidence-item'>
+                  <Text className={`doctor-session-evidence-badge ${layer.sourceType}`}>
+                    {layer.sourceType === 'guideline'
+                      ? '指南引用'
+                      : layer.sourceType === 'safety_rule'
+                        ? '安全规则'
+                        : '模型推断'}
+                  </Text>
+                  <Text className='doctor-session-line'>{layer.content}</Text>
+                </View>
+              ))}
+            </View>
+          ) : null}
+        </View>
+      )}
 
       <View className='doctor-session-card'>
         <View className='doctor-session-subtitle'>医生处理</View>

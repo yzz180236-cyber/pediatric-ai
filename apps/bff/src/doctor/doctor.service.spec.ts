@@ -1,11 +1,12 @@
-import { Repository } from 'typeorm';
+import { Repository, ObjectLiteral } from 'typeorm';
 import { ChatMessageEntity } from '../database/entities/chat-message.entity';
 import { ChatSessionEntity } from '../database/entities/chat-session.entity';
 import { DietaryRecordEntity } from '../database/entities/dietary-record.entity';
 import { PatientProfileEntity } from '../database/entities/patient-profile.entity';
 import { DoctorService } from './doctor.service';
+import { CryptoService } from '../common/services/crypto.service';
 
-function createRepoMock<T>() {
+function createRepoMock<T extends ObjectLiteral>() {
   return {
     find: jest.fn(),
     findOne: jest.fn(),
@@ -31,15 +32,20 @@ describe('DoctorService', () => {
       sender: 'user',
     } as ChatMessageEntity);
     profileRepo.findOne.mockResolvedValue({
+      id: 'profile-1',
+      userId: 'user-1',
+      nicknameHash: 'hash',
       birthday: new Date('2025-03-01'),
       gender: 1,
+      medicalHistoryEncrypted: null,
+      lastOcrSummaryEncrypted: null,
       knownAllergensEncrypted: 'cipher',
       displayNameEncrypted: 'cipher',
       decryptSensitiveFields: jest.fn(function (this: any) {
         this.knownAllergens = '牛奶蛋白'
         this.displayName = '果果'
       }),
-    } as PatientProfileEntity);
+    } as unknown as PatientProfileEntity);
     dietaryRepo.find.mockResolvedValue([
       {
         id: 'dietary-1',
@@ -50,7 +56,7 @@ describe('DoctorService', () => {
       },
     ] as DietaryRecordEntity[]);
 
-    const service = new DoctorService(sessionRepo, messageRepo, profileRepo, dietaryRepo);
+    const service = new DoctorService(sessionRepo, messageRepo, profileRepo, dietaryRepo, {} as CryptoService);
     const result = await service.getWorkbench();
 
     expect(result.summary).toEqual({
@@ -72,8 +78,11 @@ describe('DoctorService', () => {
     profileRepo.findOne.mockResolvedValue({
       id: 'profile-1',
       userId: 'user-1',
+      nicknameHash: 'hash',
       birthday: new Date('2025-03-01'),
       gender: 1,
+      medicalHistoryEncrypted: null,
+      lastOcrSummaryEncrypted: null,
       decryptSensitiveFields: jest.fn(function (this: any) {
         this.displayName = '果果'
         this.knownAllergens = '牛奶蛋白'
