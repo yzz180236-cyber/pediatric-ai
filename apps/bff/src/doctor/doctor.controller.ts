@@ -46,4 +46,16 @@ export class DoctorController {
     }
     return this.doctorService.updateSession(sessionId, body);
   }
+
+  @Get('patients/:userId/profile')
+  async getPatientProfile(
+    @Param('userId') userId: string,
+    @Req() req: Request,
+  ) {
+    const role = (req as any).user?.role;
+    if (role !== 'doctor') {
+      throw new UnauthorizedException('无权访问医生工作台');
+    }
+    return this.doctorService.getPatientProfile(userId);
+  }
 }

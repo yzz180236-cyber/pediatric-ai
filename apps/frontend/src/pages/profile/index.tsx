@@ -34,8 +34,11 @@ function formatAgeLabel(birthday: string): string {
 export default function ProfilePage() {
   const router = useRouter()
   const readonly = router.params.readonly === '1'
+  const targetUserId = router.params.userId || ''
+  const backTo = router.params.backTo ? decodeURIComponent(router.params.backTo) : ''
   const [loading, setLoading] = useState(true)
   const [saving, setSaving] = useState(false)
+  const [displayName, setDisplayName] = useState('')
   const [birthday, setBirthday] = useState('')
   const [gender, setGender] = useState(0)
   const [knownAllergens, setKnownAllergens] = useState('')
@@ -48,6 +51,7 @@ export default function ProfilePage() {
   const [editingDietaryWarning, setEditingDietaryWarning] = useState('')
   const [dietarySaving, setDietarySaving] = useState(false)
   const [initialBirthday, setInitialBirthday] = useState('')
+  const [initialDisplayName, setInitialDisplayName] = useState('')
   const [initialGender, setInitialGender] = useState(0)
   const [initialKnownAllergens, setInitialKnownAllergens] = useState('')
   const {
@@ -67,12 +71,15 @@ export default function ProfilePage() {
   const loadProfile = async () => {
     try {
       await ensureAuthenticated()
-      const profile = await request<PatientProfileDto>('/patient/profile', {
-        method: 'GET',
-      })
+      const profile = await request<PatientProfileDto>(
+        readonly && targetUserId ? `/doctor/patients/${targetUserId}/profile` : '/patient/profile',
+        { method: 'GET' }
+      )
+      setDisplayName(profile.displayName)
       setBirthday(profile.birthday)
       setGender(profile.gender)
       setKnownAllergens(profile.knownAllergens)
+      setInitialDisplayName(profile.displayName)
       setInitialBirthday(profile.birthday)
       setInitialGender(profile.gender)
       setInitialKnownAllergens(profile.knownAllergens)
@@ -107,6 +114,7 @@ export default function ProfilePage() {
     try {
       await ensureAuthenticated()
       const payload: UpdatePatientProfileRequest = {
+        displayName: displayName.trim(),
         birthday,
         gender,
         knownAllergens: knownAllergens.trim(),
@@ -115,9 +123,11 @@ export default function ProfilePage() {
         method: 'PUT',
         data: payload,
       })
+      setDisplayName(profile.displayName)
       setBirthday(profile.birthday)
       setGender(profile.gender)
       setKnownAllergens(profile.knownAllergens)
+      setInitialDisplayName(profile.displayName)
       setInitialBirthday(profile.birthday)
       setInitialGender(profile.gender)
       setInitialKnownAllergens(profile.knownAllergens)
@@ -220,13 +230,24 @@ export default function ProfilePage() {
   }
 
   const hasUnsavedProfileChanges =
+    displayName.trim() !== initialDisplayName.trim() ||
     birthday !== initialBirthday ||
     gender !== initialGender ||
     knownAllergens.trim() !== initialKnownAllergens.trim()
 
   const handleBack = async () => {
     if (!hasUnsavedProfileChanges) {
-      Taro.navigateBack()
+      if (Taro.getCurrentPages().length > 1) {
+        Taro.navigateBack()
+        return
+      }
+
+      if (backTo) {
+        Taro.redirectTo({ url: backTo })
+        return
+      }
+
+      Taro.redirectTo({ url: '/pages/index/index' })
       return
     }
 
@@ -238,7 +259,17 @@ export default function ProfilePage() {
     })
 
     if (result.confirm) {
-      Taro.navigateBack()
+      if (Taro.getCurrentPages().length > 1) {
+        Taro.navigateBack()
+        return
+      }
+
+      if (backTo) {
+        Taro.redirectTo({ url: backTo })
+        return
+      }
+
+      Taro.redirectTo({ url: '/pages/index/index' })
     }
   }
 
@@ -295,6 +326,17 @@ export default function ProfilePage() {
                   </Text>
                 </View>
               </Picker>
+            </View>
+
+            <View className='profile-field'>
+              <View className='profile-label'>宝宝昵称</View>
+              <Input
+                value={displayName}
+                onChange={setDisplayName}
+                placeholder='例如：果果、米粒'
+                className='profile-input'
+                disabled={readonly}
+              />
             </View>
 
             <View className='profile-field'>

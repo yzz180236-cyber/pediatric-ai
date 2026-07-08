@@ -168,9 +168,14 @@ export class PatientService {
     if (![0, 1, 2].includes(data.gender)) {
       throw new BadRequestException('性别字段无效');
     }
+    const displayName = data.displayName.trim();
+    if (!displayName) {
+      throw new BadRequestException('宝宝昵称不能为空');
+    }
 
     profile.birthday = birthday;
     profile.gender = data.gender;
+    profile.displayName = displayName;
     profile.knownAllergens = data.knownAllergens.trim();
     profile.encryptSensitiveFields(this.cryptoService);
     const savedProfile = await this.patientProfileRepo.save(profile);
@@ -198,6 +203,7 @@ export class PatientService {
     return {
       id: profile.id,
       userId: profile.userId,
+      displayName: profile.displayName ?? '未命名宝宝',
       birthday: new Date(profile.birthday).toISOString().slice(0, 10),
       gender: profile.gender,
       knownAllergens: profile.knownAllergens ?? '',
@@ -216,6 +222,7 @@ export class PatientService {
       profile = this.patientProfileRepo.create({
         userId,
         nicknameHash: 'unknown',
+        displayName: '未命名宝宝',
         birthday: new Date('2020-01-01'),
         gender: 0,
       });
@@ -237,6 +244,10 @@ export class PatientService {
       profile.decryptSensitiveFields(this.cryptoService);
 
       const lines: string[] = ['【患儿档案（跨会话记忆）】'];
+
+      if (profile.displayName) {
+        lines.push(`- 宝宝称呼：${profile.displayName}`);
+      }
 
       if (profile.birthday) {
         const now = new Date();

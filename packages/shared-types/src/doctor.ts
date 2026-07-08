@@ -1,6 +1,7 @@
 export interface DoctorWorkbenchSessionDto {
   sessionId: string;
   patientUserId: string;
+  patientDisplayName: string;
   patientBirthday: string;
   patientGender: number;
   knownAllergens: string;
@@ -38,6 +39,7 @@ export interface DoctorWorkbenchMessageDto {
 export interface DoctorWorkbenchSessionDetailDto {
   sessionId: string;
   patientUserId: string;
+  patientDisplayName: string;
   patientBirthday: string;
   patientGender: number;
   knownAllergens: string;

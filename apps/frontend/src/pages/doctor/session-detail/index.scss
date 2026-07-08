@@ -5,6 +5,30 @@
   box-sizing: border-box;
 }
 
+.doctor-session-topbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.doctor-session-back {
+  min-width: 44px;
+  font-size: 15px;
+  font-weight: 600;
+  color: #0f172a;
+}
+
+.doctor-session-topbar-title {
+  font-size: 16px;
+  font-weight: 700;
+  color: #0f172a;
+}
+
+.doctor-session-topbar-spacer {
+  min-width: 44px;
+}
+
 .doctor-session-card {
   padding: 16px;
   border-radius: 18px;

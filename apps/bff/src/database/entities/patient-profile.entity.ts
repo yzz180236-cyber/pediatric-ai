@@ -16,6 +16,9 @@ export class PatientProfileEntity extends BaseEntity {
   @Column({ name: 'nickname_hash', type: 'varchar', length: 64 })
   nicknameHash: string;
 
+  @Column({ name: 'display_name_encrypted', type: 'text', nullable: true })
+  displayNameEncrypted: string | null;
+
   @Column({ name: 'birthday', type: 'date' })
   birthday: Date;
 
@@ -38,8 +41,13 @@ export class PatientProfileEntity extends BaseEntity {
   knownAllergens?: string;
   medicalHistory?: string;
   lastOcrSummary?: string;
+  displayName?: string;
 
   encryptSensitiveFields(cryptoService: CryptoService) {
+    if (this.displayName) {
+      this.displayNameEncrypted = cryptoService.encrypt(this.displayName);
+      delete this.displayName;
+    }
     if (this.knownAllergens) {
       this.knownAllergensEncrypted = cryptoService.encrypt(this.knownAllergens);
       delete this.knownAllergens;
@@ -55,6 +63,9 @@ export class PatientProfileEntity extends BaseEntity {
   }
 
   decryptSensitiveFields(cryptoService: CryptoService) {
+    if (this.displayNameEncrypted) {
+      this.displayName = cryptoService.decrypt(this.displayNameEncrypted);
+    }
     if (this.knownAllergensEncrypted) {
       this.knownAllergens = cryptoService.decrypt(this.knownAllergensEncrypted);
     }

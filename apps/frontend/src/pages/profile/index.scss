@@ -158,6 +158,28 @@
   color: #98a2b3;
 }
 
+.profile-input {
+  min-height: 48px;
+  padding: 0 14px !important;
+  border-radius: 14px !important;
+  background: #f3f5fa !important;
+  box-sizing: border-box;
+}
+
+.profile-input .nut-input-value,
+.profile-input input {
+  width: 100% !important;
+  font-size: 15px !important;
+  color: #25324a !important;
+  font-weight: 500;
+  background: transparent !important;
+}
+
+.profile-input input::placeholder {
+  color: #98a2b3 !important;
+  font-weight: 400;
+}
+
 .profile-gender-row {
   display: flex;
   gap: 10px;

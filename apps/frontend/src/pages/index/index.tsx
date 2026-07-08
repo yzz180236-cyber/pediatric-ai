@@ -7,7 +7,7 @@ import { ChatInputBar } from "../../components/ChatInputBar";
 import { useChatActions } from "./hooks/useChatActions";
 import { useChatStore } from "../../store/chatStore";
 import { useUserStore } from "../../store/userStore";
-import { devLogin, isH5Dev } from "../../utils/auth";
+import { devLogin, isH5Dev, logout } from "../../utils/auth";
 import "./index.scss";
 
 export default function Index() {
@@ -40,7 +40,10 @@ export default function Index() {
   const currentSessionId = useChatStore((state) => state.currentSessionId);
   const token = useUserStore((state) => state.token);
   const role = useUserStore((state) => state.role);
+  const authSource = useUserStore((state) => state.authSource);
   const showDevLogin = isH5Dev && !token;
+  const isDoctor = role === "doctor";
+  const roleLabel = isDoctor ? "医生" : "家长";
 
   useEffect(() => {
     if (showDevLogin) {
@@ -66,6 +69,24 @@ export default function Index() {
     } finally {
       setDevLoginLoading(false);
     }
+  };
+
+  const handleLogout = async () => {
+    const result = await Taro.showModal({
+      title: "退出登录",
+      content: "确定退出当前账号吗？",
+      confirmText: "退出",
+      cancelText: "取消",
+    });
+
+    if (!result.confirm) {
+      return;
+    }
+
+    logout();
+    setDrawerOpen(false);
+    setActiveTab("chat");
+    Taro.showToast({ title: "已退出登录", icon: "success" });
   };
 
   return (
@@ -113,18 +134,6 @@ export default function Index() {
                 + 新建
               </View>
             </View>
-            {role === 'doctor' && (
-              <View
-                className="session-item drawer-entry-card"
-                onClick={() => {
-                  Taro.navigateTo({ url: '/pages/doctor/workbench/index' })
-                  setDrawerOpen(false)
-                }}
-              >
-                <View className="session-title">医生工作台</View>
-                <View className="session-time">查看预诊单、随访与患儿会话</View>
-              </View>
-            )}
             <ScrollView scrollY className="drawer-list">
               {sessions.map((s) => (
                 <View
@@ -174,6 +183,23 @@ export default function Index() {
                 </View>
               )}
             </ScrollView>
+            {token && (
+              <View className="drawer-account-panel">
+                <View className="drawer-account-copy">
+                  <View className="drawer-account-title">当前身份：{roleLabel}</View>
+                  <View className="drawer-account-meta">
+                    登录来源：{authSource === "dev" ? "开发账号" : authSource === "wechat" ? "微信登录" : "已登录"}
+                  </View>
+                </View>
+                <Button
+                  block
+                  onClick={handleLogout}
+                  className="drawer-logout-btn"
+                >
+                  退出登录
+                </Button>
+              </View>
+            )}
           </View>
         </View>
       )}
@@ -189,7 +215,7 @@ export default function Index() {
           className={`tab-item ${activeTab === "profile" ? "active" : ""}`}
           onClick={() => setActiveTab("profile")}
         >
-          宝宝档案
+          {isDoctor ? "医生工作台" : "宝宝档案"}
         </View>
       </View>
 
@@ -265,17 +291,23 @@ export default function Index() {
         ) : (
           <View className="profile-tab-entry">
             <View className="profile-tab-card">
-              <View className="card-title">宝宝档案</View>
+              <View className="card-title">{isDoctor ? "医生工作台" : "宝宝档案"}</View>
               <View className="profile-tab-copy">
-                管理宝宝基础资料、电子排敏卡和生长记录。
+                {isDoctor
+                  ? "查看预诊单、随访提醒与患儿会话详情。"
+                  : "管理宝宝基础资料、电子排敏卡和生长记录。"}
               </View>
               <Button
                 type="primary"
                 block
-                onClick={() => Taro.navigateTo({ url: '/pages/profile/index' })}
+                onClick={() =>
+                  Taro.navigateTo({
+                    url: isDoctor ? "/pages/doctor/workbench/index" : "/pages/profile/index",
+                  })
+                }
                 className="record-save-btn submit-btn-full"
               >
-                进入宝宝档案
+                {isDoctor ? "进入医生工作台" : "进入宝宝档案"}
               </Button>
             </View>
           </View>

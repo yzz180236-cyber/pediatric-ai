@@ -34,6 +34,11 @@ describe('DoctorService', () => {
       birthday: new Date('2025-03-01'),
       gender: 1,
       knownAllergensEncrypted: 'cipher',
+      displayNameEncrypted: 'cipher',
+      decryptSensitiveFields: jest.fn(function (this: any) {
+        this.knownAllergens = '牛奶蛋白'
+        this.displayName = '果果'
+      }),
     } as PatientProfileEntity);
     dietaryRepo.find.mockResolvedValue([
       {
@@ -53,7 +58,34 @@ describe('DoctorService', () => {
       activePatients: 1,
       dietaryAlerts: 1,
     });
+    expect(result.sessions[0].patientDisplayName).toBe('果果');
     expect(result.sessions[0].latestMessagePreview).toContain('宝宝今天发烧');
     expect(result.dietaryAlerts[0].addedFood).toBe('米粉');
+  });
+
+  it('returns patient profile with display name for doctor view', async () => {
+    const sessionRepo = createRepoMock<ChatSessionEntity>();
+    const messageRepo = createRepoMock<ChatMessageEntity>();
+    const profileRepo = createRepoMock<PatientProfileEntity>();
+    const dietaryRepo = createRepoMock<DietaryRecordEntity>();
+
+    profileRepo.findOne.mockResolvedValue({
+      id: 'profile-1',
+      userId: 'user-1',
+      birthday: new Date('2025-03-01'),
+      gender: 1,
+      decryptSensitiveFields: jest.fn(function (this: any) {
+        this.displayName = '果果'
+        this.knownAllergens = '牛奶蛋白'
+        this.medicalHistory = '摘要'
+        this.lastOcrSummary = '化验单摘要'
+      }),
+    } as unknown as PatientProfileEntity);
+
+    const service = new DoctorService(sessionRepo, messageRepo, profileRepo, dietaryRepo, {} as CryptoService);
+    const result = await service.getPatientProfile('user-1');
+
+    expect(result.displayName).toBe('果果');
+    expect(result.knownAllergens).toBe('牛奶蛋白');
   });
 });

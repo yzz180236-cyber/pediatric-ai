@@ -42,6 +42,16 @@ export async function devLogin(username: string, password: string): Promise<void
   trackEvent('dev_login_success', { username, authSource: 'dev' });
 }
 
+export function logout(): void {
+  const { role, authSource, userId } = useUserStore.getState();
+  useUserStore.getState().clearToken();
+  trackEvent('auth_logout', {
+    role: role || 'unknown',
+    authSource: authSource || 'unknown',
+    userId: userId || 'unknown',
+  });
+}
+
 export async function ensureAuthenticated(): Promise<string> {
   const existingToken = useUserStore.getState().token;
   if (existingToken) {

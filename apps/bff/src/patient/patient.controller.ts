@@ -22,6 +22,7 @@ class UpdateGrowthRecordDto implements UpdateGrowthRecordRequest {
 }
 
 class UpdatePatientProfileDto implements UpdatePatientProfileRequest {
+  displayName: string;
   birthday: string;
   gender: number;
   knownAllergens: string;

@@ -4,6 +4,7 @@ import {
   DoctorDietaryAlertDto,
   DoctorWorkbenchDto,
   DoctorWorkbenchMessageDto,
+  PatientProfileDto,
   UpdateDoctorSessionRequest,
   DoctorWorkbenchSessionDetailDto,
   DoctorWorkbenchSessionDto,
@@ -44,13 +45,17 @@ export class DoctorService {
       const profile = await this.profileRepo.findOne({
         where: { userId: session.userId },
       });
+      if (profile) {
+        profile.decryptSensitiveFields(this.cryptoService);
+      }
 
       sessionDtos.push({
         sessionId: session.id,
         patientUserId: session.userId,
+        patientDisplayName: profile?.displayName || `患儿 ${session.userId.slice(0, 8)}`,
         patientBirthday: profile?.birthday ? new Date(profile.birthday).toISOString().slice(0, 10) : '',
         patientGender: profile?.gender ?? 0,
-        knownAllergens: profile?.knownAllergensEncrypted ? '已登记' : '',
+        knownAllergens: profile?.knownAllergens ?? '',
         lastActiveAt: session.lastActiveAt.toISOString(),
         status: session.status,
         latestMessagePreview: latestMessage?.content?.slice(0, 80) ?? '暂无消息',
@@ -108,6 +113,7 @@ export class DoctorService {
     return {
       sessionId: session.id,
       patientUserId: session.userId,
+      patientDisplayName: profile?.displayName || `患儿 ${session.userId.slice(0, 8)}`,
       patientBirthday: profile?.birthday ? new Date(profile.birthday).toISOString().slice(0, 10) : '',
       patientGender: profile?.gender ?? 0,
       knownAllergens: profile?.knownAllergens ?? '',
@@ -130,5 +136,37 @@ export class DoctorService {
     session.doctorNote = data.doctorNote.trim();
     await this.sessionRepo.save(session);
     return this.getSessionDetail(sessionId);
+  }
+
+  async getPatientProfile(userId: string): Promise<PatientProfileDto> {
+    const profile = await this.profileRepo.findOne({ where: { userId } });
+    if (!profile) {
+      throw new Error('患儿档案不存在');
+    }
+    profile.decryptSensitiveFields(this.cryptoService);
+    return {
+      id: profile.id,
+      userId: profile.userId,
+      displayName: profile.displayName ?? '未命名宝宝',
+      birthday: new Date(profile.birthday).toISOString().slice(0, 10),
+      gender: profile.gender,
+      knownAllergens: profile.knownAllergens ?? '',
+      medicalHistory: profile.medicalHistory ?? '',
+      lastOcrSummary: profile.lastOcrSummary ?? '',
+    };
+  }
+
+  async listPatientDietaryRecords(userId: string): Promise<DoctorDietaryAlertDto[]> {
+    const dietary = await this.dietaryRepo.find({
+      where: { userId },
+      order: { createdAt: 'DESC' },
+    });
+    return dietary.map((record) => ({
+      recordId: record.id,
+      patientUserId: record.userId,
+      addedFood: record.addedFood,
+      allergyWarning: record.allergyWarning,
+      createdAt: record.createdAt.toISOString(),
+    }));
   }
 }

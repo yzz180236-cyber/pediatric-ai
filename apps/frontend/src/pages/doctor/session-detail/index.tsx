@@ -15,6 +15,15 @@ export default function DoctorSessionDetailPage() {
   const [doctorNote, setDoctorNote] = useState('')
   const [saving, setSaving] = useState(false)
 
+  const handleBack = () => {
+    if (Taro.getCurrentPages().length > 1) {
+      Taro.navigateBack()
+      return
+    }
+
+    Taro.redirectTo({ url: '/pages/doctor/workbench/index' })
+  }
+
   useEffect(() => {
     const loadDetail = async () => {
       if (!sessionId) return
@@ -62,8 +71,17 @@ export default function DoctorSessionDetailPage() {
 
   return (
     <ScrollView scrollY className='doctor-session-page'>
+      <View className='doctor-session-topbar'>
+        <View className='doctor-session-back' onClick={handleBack}>
+          返回
+        </View>
+        <View className='doctor-session-topbar-title'>会话详情</View>
+        <View className='doctor-session-topbar-spacer' />
+      </View>
+
       <View className='doctor-session-card'>
         <View className='doctor-session-title'>患儿会话概览</View>
+        <Text className='doctor-session-line'>宝宝称呼：{detail?.patientDisplayName || '加载中...'}</Text>
         <Text className='doctor-session-line'>患儿 ID：{detail?.patientUserId || '加载中...'}</Text>
         <Text className='doctor-session-line'>生日：{detail?.patientBirthday || '未登记'}</Text>
         <Text className='doctor-session-line'>性别：{detail?.patientGender === 1 ? '男' : detail?.patientGender === 2 ? '女' : '未知'}</Text>
@@ -73,7 +91,13 @@ export default function DoctorSessionDetailPage() {
         {detail?.patientUserId && (
           <Button
             block
-            onClick={() => Taro.navigateTo({ url: '/pages/profile/index?readonly=1' })}
+            onClick={() =>
+              Taro.navigateTo({
+                url: `/pages/profile/index?readonly=1&userId=${detail.patientUserId}&backTo=${encodeURIComponent(
+                  `/pages/doctor/session-detail/index?id=${sessionId}`
+                )}`,
+              })
+            }
             className='doctor-session-profile-btn'
           >
             查看患儿档案（只读）
