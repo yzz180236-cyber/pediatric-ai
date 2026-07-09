@@ -255,6 +255,7 @@ export class ChatService {
   async uploadImage(
     userId: string,
     file: UploadedBinaryFile,
+    publicOrigin: string,
   ): Promise<{ fileId: string; url: string }> {
     if (!file) {
       throw new InternalServerErrorException('未接收到文件');
@@ -289,7 +290,7 @@ export class ChatService {
 
     return {
       fileId: saved.id,
-      url: `${this.configService.get<string>('BFF_PUBLIC_BASE_URL', 'http://127.0.0.1:3000')}/api/v1/chat/files/${saved.id}`,
+      url: `${publicOrigin}/api/v1/chat/files/${saved.id}`,
     };
   }
 

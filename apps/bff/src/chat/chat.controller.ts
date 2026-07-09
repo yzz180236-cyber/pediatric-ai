@@ -1,6 +1,7 @@
 import { Controller, Post, Body, UseGuards, Get, Res, Req, Param, Delete, UnauthorizedException, UploadedFile, UseInterceptors } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import type { Response } from 'express';
+import type { Request } from 'express';
 import { JwtAuthGuard } from '../common/guards/jwt-auth.guard';
 import { ChatService } from './chat.service';
 import type { ChatSessionActionRequest, ChatSessionActionResponse } from '@pediatric-ai/shared-types';
@@ -102,7 +103,12 @@ export class ChatController {
     @Req() req: Request,
   ) {
     const userId = this.getUserId(req);
-    return this.chatService.uploadImage(userId, file);
+    const forwardedProto = req.header('x-forwarded-proto');
+    const forwardedHost = req.header('x-forwarded-host');
+    const protocol = forwardedProto || req.protocol || 'http';
+    const host = forwardedHost || req.header('host') || '127.0.0.1:3000';
+    const publicOrigin = `${protocol}://${host}`;
+    return this.chatService.uploadImage(userId, file, publicOrigin);
   }
 
   @Get('files/:id')

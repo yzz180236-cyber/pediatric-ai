@@ -9,11 +9,14 @@ import { containsHighRiskWords } from "../../../utils/security";
 import { trackEvent } from "../../../utils/tracker";
 
 export function useChatActions() {
+  const OCR_CARD_OFFSET = 500;
+  const ASSESSMENT_CARD_OFFSET = 1000;
   const [inputValue, setInputValue] = useState("");
   const [loading, setLoading] = useState(false);
   const [imageUrl, setImageUrl] = useState("");
   const [imageFileId, setImageFileId] = useState("");
   const [uploadingImage, setUploadingImage] = useState(false);
+  const previewObjectUrlRef = useRef<string | null>(null);
 
   const messages = useChatStore((state) => state.messages);
   const addMessage = useChatStore((state) => state.addMessage);
@@ -29,18 +32,6 @@ export function useChatActions() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const requestTaskRef = useRef<any>(null);
 
-  const handleOcrFallback = (ocrResult: any) => {
-    if (!ocrResult?.needsManualReview) return;
-    Taro.showModal({
-      title: "请核对化验单",
-      content:
-        ocrResult.warningSummary ||
-        "检测到部分指标识别置信度偏低，请家长根据原始化验单手动确认关键指标后再参考分析结果。",
-      showCancel: false,
-      confirmText: "我知道了",
-    }).catch(() => undefined);
-  };
-
   const handleStop = () => {
     if (process.env.TARO_ENV === "h5") {
       if (abortControllerRef.current) {
@@ -54,6 +45,47 @@ export function useChatActions() {
       }
     }
     setLoading(false);
+  };
+
+  const clearPreviewUrl = () => {
+    if (previewObjectUrlRef.current && previewObjectUrlRef.current.startsWith("blob:")) {
+      URL.revokeObjectURL(previewObjectUrlRef.current);
+    }
+    previewObjectUrlRef.current = null;
+  };
+
+  const fileToDataUrl = (file: File): Promise<string> =>
+    new Promise((resolve, reject) => {
+      const reader = new FileReader();
+      reader.onload = () => resolve(String(reader.result || ""));
+      reader.onerror = () => reject(reader.error || new Error("read file failed"));
+      reader.readAsDataURL(file);
+    });
+
+  const blobUrlToDataUrl = async (blobUrl: string): Promise<string> => {
+    const response = await fetch(blobUrl);
+    const blob = await response.blob();
+    return fileToDataUrl(new File([blob], "clipboard-image", { type: blob.type || "image/png" }));
+  };
+
+  const upsertOcrCardMessage = (baseMsgId: number, payload: any) => {
+    const cardId = baseMsgId + OCR_CARD_OFFSET;
+    const existing = useChatStore.getState().messages.find((msg) => msg.id === cardId);
+    if (existing) {
+      updateMessage(cardId, (msg) => ({
+        ...msg,
+        type: "ocr_result",
+        payload,
+      }));
+      return;
+    }
+    addMessage({
+      id: cardId,
+      text: "",
+      sender: "ai",
+      type: "ocr_result",
+      payload,
+    });
   };
 
   const mapMessages = (msgs: any[]): Message[] => {
@@ -90,7 +122,7 @@ export function useChatActions() {
         method: "GET",
       });
       setSessions(data);
-      if (data.length > 0 && !currentSessionId) {
+      if (data.length > 0 && !useChatStore.getState().currentSessionId) {
         loadSessionMessages(data[0].id);
       }
     } catch (e) {
@@ -126,7 +158,10 @@ export function useChatActions() {
           sender: "ai",
         },
       ]);
-      loadSessions();
+      const sessions = await request<any[]>("/chat/sessions", {
+        method: "GET",
+      });
+      setSessions(sessions);
       return data.id;
     } catch (e) {
       console.error("新建会话失败", e);
@@ -193,7 +228,7 @@ export function useChatActions() {
       .map((m) => ({
         role: m.sender === "user" ? "user" : "assistant",
         content: m.text,
-        image: m.imageUrl || null,
+        image: null,
       }));
 
     const userMsg: Message = { id: Date.now(), text, sender: "user", imageUrl };
@@ -231,7 +266,7 @@ export function useChatActions() {
           body: JSON.stringify({
             sessionId,
             message: text,
-            image: snapshotImage,
+            image: snapshotImageFileId ? null : snapshotImage,
             imageFileId: snapshotImageFileId,
             history,
           }),
@@ -292,12 +327,7 @@ export function useChatActions() {
                     }));
                   }
                   if (data.ocr_result) {
-                    handleOcrFallback(data.ocr_result);
-                    updateMessage(aiMsgId, (msg) => ({
-                      ...msg,
-                      type: 'ocr_result',
-                      payload: data.ocr_result
-                    }));
+                    upsertOcrCardMessage(aiMsgId, data.ocr_result);
                   }
                   if (data.assessment) {
                     trackEvent("chat_assessment_rendered", {
@@ -307,10 +337,9 @@ export function useChatActions() {
                       hasSummary: Boolean(data.assessment.summaryText),
                       evidenceLayerCount: data.assessment.evidenceLayers?.length || 0,
                     });
-                    const currentMsg = useChatStore.getState().messages.find((msg) => msg.id === aiMsgId);
-                    if (currentMsg?.type === 'ocr_result') {
+                    if (useChatStore.getState().messages.find((msg) => msg.id === aiMsgId + OCR_CARD_OFFSET)) {
                       addMessage({
-                        id: aiMsgId + 1000,
+                        id: aiMsgId + ASSESSMENT_CARD_OFFSET,
                         text: '',
                         sender: 'ai',
                         type: 'assessment_card',
@@ -359,7 +388,13 @@ export function useChatActions() {
           url: `${BASE_URL}/chat/stream`,
           method: "POST",
           header,
-          data: { sessionId, message: text, image: snapshotImage, imageFileId: snapshotImageFileId, history },
+          data: {
+            sessionId,
+            message: text,
+            image: snapshotImageFileId ? null : snapshotImage,
+            imageFileId: snapshotImageFileId,
+            history,
+          },
           enableChunked: true,
           success: (res: any) => {
             if (res.statusCode === 401) {
@@ -424,12 +459,7 @@ export function useChatActions() {
                     }));
                   }
                   if (data.ocr_result) {
-                    handleOcrFallback(data.ocr_result);
-                    updateMessage(aiMsgId, (msg) => ({
-                      ...msg,
-                      type: 'ocr_result',
-                      payload: data.ocr_result
-                    }));
+                    upsertOcrCardMessage(aiMsgId, data.ocr_result);
                   }
                   if (data.assessment) {
                     trackEvent("chat_assessment_rendered", {
@@ -439,10 +469,9 @@ export function useChatActions() {
                       hasSummary: Boolean(data.assessment.summaryText),
                       evidenceLayerCount: data.assessment.evidenceLayers?.length || 0,
                     });
-                    const currentMsg = useChatStore.getState().messages.find((msg) => msg.id === aiMsgId);
-                    if (currentMsg?.type === 'ocr_result') {
+                    if (useChatStore.getState().messages.find((msg) => msg.id === aiMsgId + OCR_CARD_OFFSET)) {
                       addMessage({
-                        id: aiMsgId + 1000,
+                        id: aiMsgId + ASSESSMENT_CARD_OFFSET,
                         text: '',
                         sender: 'ai',
                         type: 'assessment_card',
@@ -566,6 +595,16 @@ export function useChatActions() {
   const doUpload = async (fileOrPath: File | string) => {
     setUploadingImage(true);
     try {
+      const localPreviewUrl =
+        fileOrPath instanceof File
+          ? await fileToDataUrl(fileOrPath)
+          : (process.env.TARO_ENV === "h5" && String(fileOrPath).startsWith("blob:"))
+            ? await blobUrlToDataUrl(String(fileOrPath))
+            : fileOrPath;
+      clearPreviewUrl();
+      previewObjectUrlRef.current = localPreviewUrl.startsWith("blob:") ? localPreviewUrl : null;
+      setImageUrl(localPreviewUrl);
+
       if (process.env.TARO_ENV === "h5" && fileOrPath instanceof File) {
         const token = await ensureAuthenticated();
         const formData = new FormData();
@@ -579,13 +618,9 @@ export function useChatActions() {
         });
         if (!res.ok) throw new Error("上传失败");
         const data = await res.json() as { url: string; fileId: string };
-        setImageUrl(data.url);
         setImageFileId(data.fileId);
       } else {
-        const path =
-          fileOrPath instanceof File
-            ? URL.createObjectURL(fileOrPath)
-            : fileOrPath;
+        const path = localPreviewUrl;
         const token = await ensureAuthenticated();
         const res = await new Promise<any>((resolve, reject) => {
           Taro.uploadFile({
@@ -601,10 +636,12 @@ export function useChatActions() {
         });
         if (res.statusCode >= 400) throw new Error("上传失败");
         const data = JSON.parse(res.data);
-        setImageUrl(data.url);
         setImageFileId(data.fileId);
       }
     } catch (e) {
+      clearPreviewUrl();
+      setImageUrl("");
+      setImageFileId("");
       console.error("上传图片失败", e);
       Taro.showToast({
         title: "图片上传失败，请重试",
@@ -642,6 +679,7 @@ export function useChatActions() {
     setImageFileId,
     uploadingImage,
     messages,
+    clearPreviewUrl,
     handleSend,
     handleStop,
     handleClearChat,

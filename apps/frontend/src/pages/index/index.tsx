@@ -23,6 +23,8 @@ export default function Index() {
     loading,
     imageUrl,
     setImageUrl,
+    setImageFileId,
+    clearPreviewUrl,
     uploadingImage,
     messages,
     handleSend,
@@ -285,7 +287,11 @@ export default function Index() {
               loading={loading || uploadingImage}
               onClear={handleClearChat}
               onUploadImage={handleUploadImage}
-              onClearImage={() => setImageUrl("")}
+              onClearImage={() => {
+                clearPreviewUrl();
+                setImageUrl("");
+                setImageFileId("");
+              }}
               onPasteFile={doUpload}
             />
           </View>
