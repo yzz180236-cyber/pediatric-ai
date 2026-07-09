@@ -1,10 +1,10 @@
-import React, { useState, useEffect } from "react";
+import { useState, useEffect } from "react";
 import { View, Text, Image } from "@tarojs/components";
 import { DietaryFormCard } from "../RichCards/DietaryFormCard";
 import { OcrResultCard } from "../RichCards/OcrResultCard";
 import { FollowupCard } from "../RichCards/FollowupCard";
 import { AssessmentCard } from "../RichCards/AssessmentCard";
-import { Message } from "@pediatric-ai/shared-types";
+import { AssessmentPayload, Message, OcrResultPayload } from "@pediatric-ai/shared-types";
 import "./index.scss";
 import Taro from "@tarojs/taro";
 
@@ -65,11 +65,11 @@ export function ChatBubble({ msg, onAction }: ChatBubbleProps) {
       case "dietary_form":
         return <DietaryFormCard payload={msg.payload} onAction={onAction} />;
       case "ocr_result":
-        return <OcrResultCard payload={msg.payload} />;
+        return <OcrResultCard payload={msg.payload as OcrResultPayload | undefined} />;
       case "followup_card":
         return <FollowupCard payload={msg.payload} onAction={onAction} />;
       case "assessment_card":
-        return <AssessmentCard payload={msg.payload} onAction={onAction} />;
+        return <AssessmentCard payload={msg.payload as AssessmentPayload | undefined} onAction={onAction} />;
       default:
         return null;
     }

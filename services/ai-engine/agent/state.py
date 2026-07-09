@@ -45,7 +45,9 @@ class GraphState(TypedDict, total=False):
     needs_web_search: bool
     search_query: str
     web_search_context: str
-    
+    expanded_query: str
+    agent_tool_trace: List[str]
+
     # 深度审查反馈意见
     reflection_feedback: str
     

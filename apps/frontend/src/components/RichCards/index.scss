@@ -81,6 +81,25 @@
   color: #f5222d;
   font-weight: bold;
 }
+.ocr-row.warning-row {
+  background: rgba(245, 158, 11, 0.08);
+}
+.ocr-row .col.confidence {
+  flex: 0.8;
+}
+.ocr-row .col.confidence.warning {
+  color: #b45309;
+  font-weight: 700;
+}
+.ocr-warning-banner {
+  margin-bottom: 10PX;
+  padding: 10PX 12PX;
+  border-radius: 10PX;
+  background: rgba(245, 158, 11, 0.12);
+  color: #92400e;
+  font-size: 12PX;
+  line-height: 1.6;
+}
 .card-footer {
   font-size: 12PX;
   color: #999;

@@ -79,13 +79,15 @@ export class ChatController {
     }
     // 从 JWT 中提取 userId，传入 service 以读取患儿档案
     const userId = this.getUserId(req);
+    const traceId = String((req as any).headers?.['x-trace-id'] || '');
     const stream = await this.chatService.askAiStream(
       userId,
       sessionId,
       message,
       image ?? null,
       imageFileId ?? null,
-      history ?? []
+      history ?? [],
+      traceId,
     );
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');

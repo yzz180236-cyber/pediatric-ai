@@ -3,7 +3,7 @@ import Taro from "@tarojs/taro";
 import { Message } from "@pediatric-ai/shared-types";
 import { useChatStore } from "../../../store/chatStore";
 import { useUserStore } from "../../../store/userStore";
-import { AI_ENGINE_URL, BASE_URL, request } from "../../../utils/request";
+import { BASE_URL, request } from "../../../utils/request";
 import { ensureAuthenticated, isH5Dev } from "../../../utils/auth";
 import { containsHighRiskWords } from "../../../utils/security";
 import { trackEvent } from "../../../utils/tracker";
@@ -29,6 +29,18 @@ export function useChatActions() {
   const abortControllerRef = useRef<AbortController | null>(null);
   const requestTaskRef = useRef<any>(null);
 
+  const handleOcrFallback = (ocrResult: any) => {
+    if (!ocrResult?.needsManualReview) return;
+    Taro.showModal({
+      title: "请核对化验单",
+      content:
+        ocrResult.warningSummary ||
+        "检测到部分指标识别置信度偏低，请家长根据原始化验单手动确认关键指标后再参考分析结果。",
+      showCancel: false,
+      confirmText: "我知道了",
+    }).catch(() => undefined);
+  };
+
   const handleStop = () => {
     if (process.env.TARO_ENV === "h5") {
       if (abortControllerRef.current) {
@@ -44,8 +56,8 @@ export function useChatActions() {
     setLoading(false);
   };
 
-  const mapMessages = (msgs: any[]) => {
-    const mappedMsgs = msgs.map((m: any) => ({
+  const mapMessages = (msgs: any[]): Message[] => {
+    const mappedMsgs: Message[] = msgs.map((m: any) => ({
       id: m.id,
       text: m.content,
       sender: m.role,
@@ -280,6 +292,7 @@ export function useChatActions() {
                     }));
                   }
                   if (data.ocr_result) {
+                    handleOcrFallback(data.ocr_result);
                     updateMessage(aiMsgId, (msg) => ({
                       ...msg,
                       type: 'ocr_result',
@@ -411,6 +424,7 @@ export function useChatActions() {
                     }));
                   }
                   if (data.ocr_result) {
+                    handleOcrFallback(data.ocr_result);
                     updateMessage(aiMsgId, (msg) => ({
                       ...msg,
                       type: 'ocr_result',

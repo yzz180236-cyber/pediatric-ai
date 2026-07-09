@@ -1,14 +1,17 @@
 import os
+import atexit
 import logging
 import re
 import json
+import random
+import time
 from pydantic import BaseModel, Field
-from typing import Literal, Dict, List, Optional, Union
+from typing import Any, Literal, Dict, List, Optional, Union
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
-from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
+from langchain_core.messages import SystemMessage, HumanMessage, AIMessage, ToolMessage
+from langchain_core.tools import tool
 import base64
-from urllib.parse import urlparse
 from .state import GraphState
 from .rag_milvus import PediatricRAG
 from config import get_llm_base_url, require_env
@@ -16,6 +19,8 @@ from config import get_llm_base_url, require_env
 logger = logging.getLogger(__name__)
 
 _rag_engine = None
+_postgres_checkpointer_context = None
+_postgres_checkpointer = None
 
 def get_rag_engine():
     global _rag_engine
@@ -28,13 +33,77 @@ def get_llm(is_vision=False):
     api_key = require_env("LLM_API_KEY")
     base_url = get_llm_base_url()
     model = os.environ.get("LLM_VISION_MODEL_NAME", "qwen-vl-plus") if is_vision else os.environ.get("LLM_MODEL_NAME", "qwen3.6-plus")
-    return ChatOpenAI(api_key=api_key, base_url=base_url, model=model)
+    timeout_seconds = float(os.environ.get("LLM_TIMEOUT_SECONDS", "15"))
+    return ChatOpenAI(
+        api_key=api_key,
+        base_url=base_url,
+        model=model,
+        timeout=timeout_seconds,
+        max_retries=0,
+    )
+
+
+TRANSIENT_LLM_ERROR_PATTERNS = (
+    "429",
+    "500",
+    "502",
+    "503",
+    "504",
+    "timeout",
+    "timed out",
+    "rate limit",
+    "temporarily unavailable",
+    "connection reset",
+    "service unavailable",
+)
+MAX_LLM_RETRIES = int(os.environ.get("LLM_MAX_RETRIES", "3"))
+MEDICATION_REDLINE_PATTERN = re.compile(
+    r"(阿莫西林|头孢|布洛芬|对乙酰氨基酚|美林|泰诺林|抗生素|阿奇霉素|雾化|止咳糖浆)"
+    r"[\s\S]{0,24}?"
+    r"(\d+(\.\d+)?\s*(ml|mL|毫升|mg|毫克|片|包|粒|滴|次|天|小时))",
+    re.IGNORECASE,
+)
+PRESCRIPTION_ONLY_PATTERN = re.compile(
+    r"(处方药|抗生素|阿莫西林|头孢|阿奇霉素|美林|泰诺林|布洛芬|对乙酰氨基酚)",
+    re.IGNORECASE,
+)
+DISCLAIMER_PATTERN = re.compile(r"免责声明|仅供.*参考|不能替代.*面诊|不作为.*诊断依据")
+
+
+def _should_retry_llm_error(exc: Exception) -> bool:
+    message = str(exc).lower()
+    return any(pattern in message for pattern in TRANSIENT_LLM_ERROR_PATTERNS)
+
+
+def _invoke_llm_with_retry(
+    llm: ChatOpenAI,
+    messages: List[Any],
+    trace_id: str,
+    operation: str,
+) -> Any:
+    last_exc: Optional[Exception] = None
+    for attempt in range(1, MAX_LLM_RETRIES + 1):
+        try:
+            return llm.invoke(messages)
+        except Exception as exc:
+            last_exc = exc
+            is_last_attempt = attempt >= MAX_LLM_RETRIES
+            if not _should_retry_llm_error(exc) or is_last_attempt:
+                logger.exception(f"[{trace_id}] {operation} 调用失败，attempt={attempt}")
+                raise
+            delay = min(0.6 * (2 ** (attempt - 1)) + random.uniform(0, 0.2), 3.0)
+            logger.warning(f"[{trace_id}] {operation} 调用失败，{delay:.2f}s 后重试第 {attempt + 1} 次: {exc}")
+            time.sleep(delay)
+    if last_exc:
+        raise last_exc
+    raise RuntimeError(f"{operation} 调用失败")
 
 
 def _extract_first_json_object(text: str) -> Optional[dict]:
     if not text:
         return None
     stripped = text.strip()
+    stripped = re.sub(r"^```(?:json)?\s*|\s*```$", "", stripped, flags=re.IGNORECASE)
     try:
         parsed = json.loads(stripped)
         if isinstance(parsed, dict):
@@ -44,21 +113,113 @@ def _extract_first_json_object(text: str) -> Optional[dict]:
     except Exception:
         pass
 
-    match = re.search(r"\{[\s\S]*\}", text)
-    if not match:
-        return None
     try:
-        parsed = json.loads(match.group(0))
-        return parsed if isinstance(parsed, dict) else None
+        decoder = json.JSONDecoder()
+        for start_index, char in enumerate(stripped):
+            if char != "{":
+                continue
+            parsed, _ = decoder.raw_decode(stripped[start_index:])
+            if isinstance(parsed, dict):
+                return parsed
     except Exception:
-        return None
+        pass
+    return None
+
+
+def _normalize_json_payload(payload: dict[str, Any]) -> dict[str, Any]:
+    normalized = dict(payload)
+    alias_pairs = {
+        "intent_type": "intent",
+        "need_web_search": "needs_web_search",
+        "triageLevel": "triage_level",
+        "triageReason": "triage_reason",
+        "trendDirection": "trend_direction",
+        "trendReason": "trend_reason",
+        "recommendedAction": "recommended_actions",
+        "recommended_actions_list": "recommended_actions",
+        "warningSignals": "warning_signals",
+        "constraintWarnings": "constraint_warnings",
+        "ageBand": "age_band",
+    }
+    for old_key, new_key in alias_pairs.items():
+        if old_key in normalized and new_key not in normalized:
+            normalized[new_key] = normalized[old_key]
+    return normalized
+
+
+def _extract_citation_indices(reply: str) -> List[int]:
+    return [int(match) for match in re.findall(r"\[\^(\d+)\]", reply or "")]
+
+
+def _is_measurement_only_reply(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    if not compact:
+        return False
+    if _is_growth_only_reply(compact):
+        return True
+    measurement_keywords = ("kg", "cm", "℃", "度", "次/分", "mmol", "10^", "%", "bpm", "ml")
+    has_measurement_keyword = any(keyword.lower() in compact.lower() for keyword in measurement_keywords)
+    no_symptom_text = not re.search(r"发热|发烧|咳|喘|痛|吐|泻|疹|抽|精神差|呼吸", compact)
+    digit_ratio = sum(char.isdigit() for char in compact) / max(len(compact), 1)
+    return has_measurement_keyword and no_symptom_text and digit_ratio >= 0.2
+
+
+def _evaluate_reply_safety(
+    reply: str,
+    citations: List[Dict[str, object]],
+    require_citation_protocol: bool,
+) -> List[str]:
+    violations: List[str] = []
+    if not DISCLAIMER_PATTERN.search(reply or ""):
+        violations.append("回答缺少强制免责声明。")
+    if MEDICATION_REDLINE_PATTERN.search(reply or ""):
+        violations.append("回答包含具体药物名称与剂量/频次，触发医疗用药红线。")
+    elif PRESCRIPTION_ONLY_PATTERN.search(reply or "") and re.search(r"推荐|建议|使用|服用|口服", reply or ""):
+        violations.append("回答对处方药给出了过强的推荐或治疗导向。")
+    if require_citation_protocol:
+        citation_indices = _extract_citation_indices(reply)
+        if citation_indices:
+            citation_count = len(citations)
+            invalid_indices = [idx for idx in citation_indices if idx < 1 or idx > citation_count]
+            if invalid_indices:
+                violations.append("回答中的引用编号超出实际 RAG 召回范围。")
+        if "[^" in (reply or "") and not citation_indices:
+            violations.append("回答包含损坏的引用语法。")
+    return violations
+
+
+def _build_medical_redline_fallback(citations: List[Dict[str, object]]) -> str:
+    source_line = ""
+    if citations:
+        source_labels = []
+        for index, citation in enumerate(citations[:2], start=1):
+            title = str(citation.get("title", "指南来源"))
+            chapter = str(citation.get("chapter", "") or "")
+            label = f"[^{index}] {title}"
+            if chapter:
+                label += f" / {chapter}"
+            source_labels.append(label)
+        source_line = "\n\n参考依据：\n" + "\n".join(source_labels)
+    return (
+        "### 安全提示\n"
+        "当前问题涉及医疗用药或高风险处置，我不能提供具体药物品牌、剂量或替代处方建议。\n"
+        "请尽快携带宝宝的年龄、体重、症状持续时间和既往过敏史，联系线下儿科医生或就近就诊。"
+        f"{source_line}\n\n"
+        "> ⚠️ 免责声明：以上内容仅供医学参考，不能替代执业医师面诊，不作为最终诊断依据。"
+    )
 
 
 def _invoke_json_dict(prompt: str, trace_id: str) -> Optional[dict]:
     try:
         llm = get_llm(is_vision=False)
-        raw = llm.invoke([HumanMessage(content=prompt)]).content
-        return _extract_first_json_object(raw if isinstance(raw, str) else str(raw))
+        raw = _invoke_llm_with_retry(
+            llm,
+            [HumanMessage(content=prompt)],
+            trace_id,
+            "structured_json",
+        ).content
+        parsed = _extract_first_json_object(raw if isinstance(raw, str) else str(raw))
+        return _normalize_json_payload(parsed) if parsed else None
     except Exception:
         logger.exception(f"[{trace_id}] JSON 调用失败")
         return None
@@ -192,6 +353,131 @@ def _recent_user_text(state: GraphState, limit: int = 2) -> str:
     tail = recent_user_messages[-limit:] if recent_user_messages else []
     current_messages = [str(item).strip() for item in state.get("messages", []) if str(item).strip()]
     return "\n".join([*tail, *current_messages])
+
+
+QUERY_SYNONYM_MAP: Dict[str, List[str]] = {
+    "拉肚子": ["腹泻", "小儿腹泻", "补液盐"],
+    "拉稀": ["腹泻", "小儿腹泻", "补液盐"],
+    "水样便": ["腹泻", "脱水", "补液盐"],
+    "咳得厉害": ["咳嗽", "呼吸道感染", "肺炎预警"],
+    "喘": ["喘息", "呼吸困难", "下呼吸道感染"],
+    "起疹子": ["皮疹", "手足口病", "出疹性疾病"],
+    "嘴唇发紫": ["发绀", "呼吸困难", "急症预警"],
+    "不吃东西": ["进食差", "脱水风险", "精神反应差"],
+}
+
+
+def _estimate_token_count(text: str) -> int:
+    if not text:
+        return 0
+    return max(1, len(text) // 4)
+
+
+def _truncate_history_for_model(
+    history: List[dict],
+    latest_message: str,
+    patient_profile: str,
+) -> List[dict]:
+    max_tokens = int(os.environ.get("CHAT_HISTORY_MAX_TOKENS", "1800"))
+    reserve_tokens = _estimate_token_count(latest_message) + _estimate_token_count(patient_profile)
+    budget = max(400, max_tokens - reserve_tokens)
+    selected: List[dict] = []
+    running_tokens = 0
+    for item in reversed(history):
+        content = str(item.get("content", "")).strip()
+        image_note = " [含图片]" if item.get("image") else ""
+        item_tokens = _estimate_token_count(content + image_note)
+        if selected and running_tokens + item_tokens > budget:
+            break
+        selected.append(item)
+        running_tokens += item_tokens
+    return list(reversed(selected))
+
+
+def _apply_local_query_synonyms(query: str) -> str:
+    expanded_terms: List[str] = []
+    for alias, canonical_terms in QUERY_SYNONYM_MAP.items():
+        if alias in query:
+            expanded_terms.extend(canonical_terms)
+    expanded_terms = [term for term in dict.fromkeys(expanded_terms) if term not in query]
+    if not expanded_terms:
+        return query
+    return f"{query}；相关医学术语：{'、'.join(expanded_terms)}"
+
+
+def _rewrite_medical_query(query: str, trace_id: str) -> str:
+    base_query = _apply_local_query_synonyms(query)
+    prompt = f"""你是儿科医学检索改写器。请把家长口语化提问改写为适合医学指南检索的短查询。
+要求：
+1. 保留原始症状与病程信息，不要编造新事实。
+2. 可补充 2-5 个贴近临床指南的同义词或检索关键词。
+3. 仅输出一个 JSON：{{"expanded_query":"..."}}。
+
+原始问题：{query}
+基础同义词扩展：{base_query}
+"""
+    parsed = _invoke_json_dict(prompt, trace_id)
+    expanded_query = str(parsed.get("expanded_query", "")).strip() if parsed else ""
+    if not expanded_query:
+        return base_query
+    if len(expanded_query) > 180:
+        return expanded_query[:180]
+    return expanded_query
+
+
+def _normalize_ocr_result(payload: Dict[str, Any]) -> Dict[str, Any]:
+    items = payload.get("items")
+    normalized_items: List[Dict[str, Any]] = []
+    low_confidence_items: List[str] = []
+    if isinstance(items, list):
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            confidence_raw = item.get("confidence")
+            try:
+                confidence = float(confidence_raw) if confidence_raw is not None else 0.6
+            except (TypeError, ValueError):
+                confidence = 0.6
+            confidence = max(0.0, min(confidence, 1.0))
+            warning_flag = bool(item.get("warningFlag")) or confidence < 0.85
+            normalized_item = {
+                "name": str(item.get("name", "")).strip(),
+                "result": str(item.get("result", "")).strip(),
+                "unit": str(item.get("unit", "")).strip(),
+                "referenceRange": str(item.get("referenceRange", "")).strip(),
+                "isAbnormal": bool(item.get("isAbnormal")),
+                "confidence": confidence,
+                "warningFlag": warning_flag,
+            }
+            normalized_items.append(normalized_item)
+            if warning_flag and normalized_item["name"]:
+                low_confidence_items.append(normalized_item["name"])
+    payload["items"] = normalized_items
+    payload["needsManualReview"] = bool(low_confidence_items)
+    payload["lowConfidenceItems"] = low_confidence_items
+    if low_confidence_items and not payload.get("warningSummary"):
+        payload["warningSummary"] = f"以下指标识别置信度偏低，请家长手动确认：{'、'.join(low_confidence_items)}"
+    payload["overallConfidence"] = round(
+        sum(item["confidence"] for item in normalized_items) / len(normalized_items),
+        3,
+    ) if normalized_items else 0.0
+    return payload
+
+
+def _build_user_fact_memory(slots: Dict[str, str], assessment: Optional[Dict[str, Any]]) -> str:
+    facts: List[str] = []
+    for key in ["age", "temperature", "duration", "mental_state", "breathing_state", "hydration", "frequency", "symptom"]:
+        value = str(slots.get(key, "")).strip()
+        if value:
+            facts.append(f"{key}={value}")
+    if assessment:
+        triage_level = str(assessment.get("triageLevel", "")).strip()
+        summary_text = str(assessment.get("summaryText", "")).strip()
+        if triage_level:
+            facts.append(f"triage={triage_level}")
+        if summary_text:
+            facts.append(f"summary={summary_text[:180]}")
+    return "；".join(facts)
 
 
 SYMPTOM_TEMPLATES: Dict[str, List[Dict[str, object]]] = {
@@ -406,6 +692,141 @@ EMERGENCY_RULES = [
     },
 ]
 
+
+def _perform_web_search(query: str, trace_id: str) -> str:
+    if not query:
+        return ""
+    try:
+        from duckduckgo_search import DDGS
+        with DDGS() as ddgs:
+            results = list(ddgs.text(query, max_results=3))
+        logger.info(f"[{trace_id}] Web Search 完成: {query}")
+        return "\n".join(
+            [
+                f"标题: {r.get('title')}\n来源: {r.get('href')}\n摘要: {r.get('body')}"
+                for r in results
+            ]
+        )
+    except Exception:
+        logger.exception(f"[{trace_id}] web_search_tool 异常")
+        return "搜索服务暂时不可用"
+
+
+def _perform_rag_search(query: str, trace_id: str) -> Dict[str, Any]:
+    try:
+        context, citations = get_rag_engine().search(query, top_k=5)
+        logger.info(f"[{trace_id}] RAG 检索完成，召回 {len(citations)} 条指南")
+        if not citations:
+            return {
+                "context": "未检索到高置信度的权威指南依据。请基于保守的儿科安全原则回答，并明确提示家长线下就医。",
+                "citations": [],
+            }
+        return {"context": context, "citations": citations}
+    except Exception:
+        logger.exception(f"[{trace_id}] rag_tool 异常")
+        return {"context": "知识库暂时不可用，将基于通用知识回答。", "citations": []}
+
+
+def _perform_ocr_extraction(image_data: str, trace_id: str) -> Dict[str, Any]:
+    if not image_data:
+        return {}
+    logger.info(f"[{trace_id}] 进入 ocr_extraction_tool")
+    llm = get_llm(is_vision=True)
+    prompt = """请识别这张医学化验单，严格输出一段纯 JSON，不需要Markdown包裹，不需要解释：
+{
+  "hospitalName": "xxx医院",
+  "date": "xxxx-xx-xx",
+  "patientName": "姓名",
+  "warningSummary": "",
+  "items": [
+    {
+      "name": "白细胞",
+      "result": "10.0",
+      "unit": "10^9/L",
+      "referenceRange": "4.0-10.0",
+      "isAbnormal": false,
+      "confidence": 0.93
+    }
+  ]
+}
+要求：
+1. confidence 为 0.0 到 1.0。
+2. 模糊、反光、单位不清或参考范围缺失时，confidence 必须下降。
+3. 不确定时宁可低置信度，也不要编造。"""
+    real_image = resolve_image(image_data)
+    if not real_image:
+        return {}
+    try:
+        user_content = [
+            {"type": "text", "text": prompt},
+            {"type": "image_url", "image_url": {"url": real_image}},
+        ]
+        res = _invoke_llm_with_retry(
+            llm,
+            [HumanMessage(content=user_content)],
+            trace_id,
+            "ocr",
+        )
+        content = res.content
+        match = re.search(r"\{.*\}", str(content), re.DOTALL)
+        if match:
+            ocr_json = json.loads(match.group(0))
+            logger.info(f"[{trace_id}] OCR 提取成功")
+            return _normalize_ocr_result(ocr_json)
+    except Exception:
+        logger.exception(f"[{trace_id}] OCR 提取失败")
+    return {}
+
+
+def _build_agentic_tools(state: GraphState, trace_id: str, expanded_query: str) -> List[Any]:
+    patient_profile = state.get("patient_profile", "").strip()
+    patient_context = state.get("patient_context", {}) or {}
+    image_data = state.get("image_data", "")
+    latest_message = state["messages"][-1] if state.get("messages") else ""
+
+    @tool("patient_profile_retriever")
+    def patient_profile_retriever() -> str:
+        """读取患儿结构化档案与关键上下文，仅在医学判断需要年龄、体重、过敏史时调用。"""
+        return json.dumps(
+            {
+                "patientProfile": patient_profile,
+                "patientContext": patient_context,
+            },
+            ensure_ascii=False,
+        )
+
+    @tool("expand_medical_query")
+    def expand_medical_query_tool(raw_query: str) -> str:
+        """将家长口语化医学问题扩展为适合指南检索的查询。"""
+        rewritten = _rewrite_medical_query(raw_query or latest_message, trace_id)
+        return json.dumps({"expandedQuery": rewritten}, ensure_ascii=False)
+
+    @tool("search_guideline_rag")
+    def search_guideline_rag(query: str) -> str:
+        """检索权威医学指南，返回可追溯 citations 与 context。"""
+        result = _perform_rag_search(query or expanded_query or latest_message, trace_id)
+        return json.dumps(result, ensure_ascii=False)
+
+    @tool("search_web_updates")
+    def search_web_updates(query: str) -> str:
+        """当需要最新资讯或最新政策时执行联网搜索。"""
+        result = {"web_search_context": _perform_web_search(query or latest_message, trace_id)}
+        return json.dumps(result, ensure_ascii=False)
+
+    @tool("analyze_ocr_report")
+    def analyze_ocr_report() -> str:
+        """解析当前上传的检验报告/化验单图片，返回带置信度的结构化结果。"""
+        result = _perform_ocr_extraction(image_data, trace_id)
+        return json.dumps({"ocr_result": result}, ensure_ascii=False)
+
+    return [
+        patient_profile_retriever,
+        expand_medical_query_tool,
+        search_guideline_rag,
+        search_web_updates,
+        analyze_ocr_report,
+    ]
+
 def router_node(state: GraphState):
     """意图识别节点：使用 LLM 零样本分类识别用户意图"""
     trace_id = state.get("trace_id", "unknown")
@@ -466,43 +887,10 @@ def router_node(state: GraphState):
 
 def route_after_router(state: GraphState) -> str:
     """条件路由：根据意图走向"""
-    if state.get("needs_web_search"):
-        return "web_search"
     intent = state.get("intent", "general")
     if intent == "medical":
         return "emergency_guard"
-    if intent == "report":
-        return "ocr"   # 报告分析先走 OCR 提取
-    return "chat"
-
-def web_search_node(state: GraphState):
-    """真实互联网搜索节点"""
-    trace_id = state.get("trace_id", "unknown")
-    query = state.get("search_query", "")
-    
-    if not query:
-        return {"web_search_context": ""}
-        
-    try:
-        from duckduckgo_search import DDGS
-        with DDGS() as ddgs:
-            results = list(ddgs.text(query, max_results=3))
-            
-        context = "\n".join([f"标题: {r.get('title')}\n来源: {r.get('href')}\n摘要: {r.get('body')}" for r in results])
-        logger.info(f"[{trace_id}] Web Search 完成: {query}")
-        return {"web_search_context": context}
-    except Exception as e:
-        logger.exception(f"[{trace_id}] web_search_node 异常")
-        return {"web_search_context": "搜索服务暂时不可用"}
-
-def route_after_web_search(state: GraphState) -> str:
-    """网搜之后的再次路由，走回原来的逻辑分支"""
-    intent = state.get("intent", "general")
-    if intent == "medical":
-        return "emergency_guard"
-    if intent == "report":
-        return "rag"
-    return "chat"
+    return "agentic_tools"
 
 
 def emergency_guard_node(state: GraphState):
@@ -514,7 +902,18 @@ def emergency_guard_node(state: GraphState):
         logger.info(f"[{trace_id}] 当前输入是纯生长数据补充，跳过急症熔断")
         return {}
 
-    merged_text = _recent_user_text(state, limit=2)
+    recent_user_messages = [
+        str(item.get("content", "")).strip()
+        for item in state.get("history", [])
+        if item.get("role") == "user" and str(item.get("content", "")).strip()
+    ][-2:]
+    if latest_message.strip():
+        recent_user_messages.append(latest_message.strip())
+    if recent_user_messages and all(_is_measurement_only_reply(text) for text in recent_user_messages):
+        logger.info(f"[{trace_id}] 最近两轮均为纯指标/纯生长数据，跳过急症熔断")
+        return {}
+
+    merged_text = "\n".join(recent_user_messages)
 
     matched_signals: List[str] = []
     matched_reasons: List[str] = []
@@ -564,6 +963,109 @@ class SlotStatus(BaseModel):
     followup_question: Optional[str]
     # AI 动态生成的快捷选项（最多 5 个），方便家长快速点击回答
     followup_options: Optional[List[str]] = None
+
+
+def agentic_tools_node(state: GraphState):
+    """局部 ReAct 工具调度节点：在最多 3 轮工具调用内收集检索/档案/OCR 上下文"""
+    trace_id = state.get("trace_id", "unknown")
+    intent = state.get("intent", "general")
+    latest_message = state["messages"][-1] if state.get("messages") else ""
+    base_query = state.get("slots", {}).get("symptom") or latest_message
+    expanded_query = _rewrite_medical_query(base_query, trace_id) if intent in {"medical", "report"} else base_query
+    tools = _build_agentic_tools(state, trace_id, expanded_query)
+    tool_map = {tool_item.name: tool_item for tool_item in tools}
+    llm = get_llm(is_vision=False).bind_tools(tools)
+
+    system_prompt = """你是智慧儿科的工具调度代理。
+目标：在最多 3 次工具调用内，为后续正式答复准备可靠上下文。
+规则：
+1. 医学问题优先考虑读取患儿档案；涉及临床依据时再做指南检索。
+2. 用户上传化验单或提到报告时，优先调用 analyze_ocr_report。
+3. 只有当问题明确需要最新资讯、政策或新闻时，才调用 search_web_updates。
+4. 如需检索医学指南，先调用 expand_medical_query 再调用 search_guideline_rag。
+5. 不要重复调用同一工具；拿到足够信息后立即停止。"""
+    user_prompt = (
+        f"用户意图: {intent}\n"
+        f"用户当前问题: {latest_message}\n"
+        f"槽位摘要: {state.get('slots', {})}\n"
+        f"是否有图片: {bool(state.get('image_data'))}\n"
+        f"当前推荐检索查询: {expanded_query}\n"
+        "请按需调用工具。"
+    )
+    messages: List[Any] = [SystemMessage(content=system_prompt), HumanMessage(content=user_prompt)]
+
+    collected_context = state.get("context", "")
+    collected_citations = list(state.get("citations", []) or [])
+    collected_web_context = state.get("web_search_context", "")
+    collected_ocr_result = state.get("ocr_result", {})
+    tool_trace: List[str] = []
+    total_tool_calls = 0
+
+    for _ in range(3):
+        ai_message = _invoke_llm_with_retry(llm, messages, trace_id, "agentic_tools")
+        messages.append(ai_message)
+        tool_calls = getattr(ai_message, "tool_calls", []) or []
+        if not tool_calls:
+            break
+        for tool_call in tool_calls:
+            if total_tool_calls >= 3:
+                break
+            tool_name = str(tool_call.get("name", ""))
+            selected_tool = tool_map.get(tool_name)
+            if not selected_tool:
+                continue
+            try:
+                tool_result = selected_tool.invoke(tool_call.get("args", {}))
+                parsed_result = _extract_first_json_object(str(tool_result)) or {}
+                if tool_name == "expand_medical_query":
+                    expanded_query = str(parsed_result.get("expandedQuery", expanded_query)).strip() or expanded_query
+                    tool_trace.append(f"已扩展检索查询：{expanded_query}")
+                elif tool_name == "search_guideline_rag":
+                    collected_context = str(parsed_result.get("context", collected_context))
+                    collected_citations = parsed_result.get("citations", collected_citations) or []
+                    tool_trace.append(f"已检索指南，召回 {len(collected_citations)} 条参考依据")
+                elif tool_name == "search_web_updates":
+                    collected_web_context = str(parsed_result.get("web_search_context", collected_web_context))
+                    tool_trace.append("已补充最新联网信息")
+                elif tool_name == "analyze_ocr_report":
+                    collected_ocr_result = parsed_result.get("ocr_result", collected_ocr_result) or {}
+                    item_count = len(collected_ocr_result.get("items", [])) if isinstance(collected_ocr_result, dict) else 0
+                    tool_trace.append(f"已解析化验单，提取 {item_count} 个指标")
+                elif tool_name == "patient_profile_retriever":
+                    tool_trace.append("已读取患儿历史档案")
+                messages.append(
+                    ToolMessage(
+                        content=json.dumps(parsed_result, ensure_ascii=False),
+                        tool_call_id=str(tool_call.get("id", "")),
+                        name=tool_name,
+                    )
+                )
+            except Exception:
+                logger.exception(f"[{trace_id}] 工具调用失败: {tool_name}")
+                messages.append(
+                    ToolMessage(
+                        content=json.dumps({"error": f"{tool_name} failed"}, ensure_ascii=False),
+                        tool_call_id=str(tool_call.get("id", "")),
+                        name=tool_name,
+                    )
+                )
+            total_tool_calls += 1
+        if total_tool_calls >= 3:
+            break
+
+    response: Dict[str, Any] = {
+        "expanded_query": expanded_query,
+        "agent_tool_trace": tool_trace,
+    }
+    if collected_context:
+        response["context"] = collected_context
+    if collected_citations:
+        response["citations"] = collected_citations
+    if collected_web_context:
+        response["web_search_context"] = collected_web_context
+    if collected_ocr_result:
+        response["ocr_result"] = collected_ocr_result
+    return response
 
 def slot_filling_node(state: GraphState):
     """槽位填充节点：自动化追问关键体征"""
@@ -649,7 +1151,14 @@ def route_after_slot_filling(state: GraphState) -> str:
     if status == "missing":
         # 如果槽位缺失且已经生成了追问 reply，则提前结束 Graph
         return END
-    return "rag"
+    return "agentic_tools"
+
+
+def route_after_agentic_tools(state: GraphState) -> str:
+    intent = state.get("intent", "general")
+    if intent in {"medical", "report"}:
+        return "triage_assessment"
+    return "chat"
 
 
 def triage_assessment_node(state: GraphState):
@@ -727,16 +1236,8 @@ def triage_assessment_node(state: GraphState):
 def rag_node(state: GraphState):
     """指南检索 RAG 节点"""
     trace_id = state.get("trace_id", "unknown")
-    # 使用完整症状描述做检索，而非只用最后一条消息
-    query = state.get("slots", {}).get("symptom") or (state["messages"][-1] if state["messages"] else "")
-    
-    try:
-        context, citations = get_rag_engine().search(query, top_k=5)
-        logger.info(f"[{trace_id}] RAG 检索完成，召回 {len(citations)} 条指南")
-        return {"context": context, "citations": citations}
-    except Exception as e:
-        logger.exception(f"[{trace_id}] rag_node 异常")
-        return {"context": "知识库暂时不可用，将基于通用知识回答。", "citations": []}
+    query = state.get("expanded_query") or state.get("slots", {}).get("symptom") or (state["messages"][-1] if state["messages"] else "")
+    return _perform_rag_search(str(query), trace_id)
 
 def resolve_image(url_or_base64: str):
     """将私有文件标识转为大模型可读的 Base64"""
@@ -761,38 +1262,7 @@ def ocr_extraction_node(state: GraphState):
     image_data = state.get("image_data")
     if not image_data:
         return {}
-
-    logger.info(f"[{trace_id}] 进入 ocr_extraction_node")
-    llm = get_llm(is_vision=True)
-    prompt = """请识别这张医学化验单，严格输出一段纯 JSON，不需要Markdown包裹，不需要解释：
-{
-  "hospitalName": "xxx医院",
-  "date": "xxxx-xx-xx",
-  "patientName": "姓名",
-  "items": [
-    {"name": "白细胞", "result": "10.0", "unit": "10^9/L", "referenceRange": "4.0-10.0", "isAbnormal": false}
-  ]
-}"""
-    real_image = resolve_image(image_data)
-    if not real_image: return {}
-
-    try:
-        user_content = [
-            {"type": "text", "text": prompt},
-            {"type": "image_url", "image_url": {"url": real_image}}
-        ]
-        res = llm.invoke([HumanMessage(content=user_content)])
-        content = res.content
-        import re, json
-        match = re.search(r'\{.*\}', content, re.DOTALL)
-        if match:
-            ocr_json = json.loads(match.group(0))
-            logger.info(f"[{trace_id}] OCR 提取成功")
-            return {"ocr_result": ocr_json}
-    except Exception as e:
-        logger.exception(f"[{trace_id}] OCR 提取失败")
-    
-    return {}
+    return {"ocr_result": _perform_ocr_extraction(image_data, trace_id)}
 
 def chat_node(state: GraphState):
     """最终答复节点"""
@@ -831,6 +1301,31 @@ def chat_node(state: GraphState):
         context_block = f"--- 互联网搜索结果 ---\n{web_search_context}\n\n--- 指南检索结果 ---\n{context}"
     else:
         context_block = f"--- 指南检索结果 ---\n{context}"
+    citations = state.get("citations", []) or []
+    citation_protocol_block = ""
+    if citations:
+        citation_lines = []
+        for index, citation in enumerate(citations, start=1):
+            title = str(citation.get("title", "指南来源"))
+            chapter = str(citation.get("chapter", "") or "")
+            confidence = citation.get("retrievalConfidence") or citation.get("score")
+            line = f"[^{index}] {title}"
+            if chapter:
+                line += f" / {chapter}"
+            if confidence is not None:
+                line += f" / 检索置信: {confidence}"
+            citation_lines.append(line)
+        citation_protocol_block = (
+            "\n\n【引用协议】\n"
+            "如果你引用了下面的指南依据，正文中只能使用 `[^1]`、`[^2]` 这类脚注标记，且编号必须与下方列表完全一致。\n"
+            "严禁编造不存在的引用编号，严禁输出列表之外的来源。\n"
+            + "\n".join(citation_lines)
+        )
+    else:
+        citation_protocol_block = (
+            "\n\n【引用协议】\n"
+            "当前没有检索到高置信度指南依据，不要伪造指南来源，不要输出任何 `[^n]` 引用编号。"
+        )
 
     # 【P0.1 患儿档案记忆】：从 state 中取出 BFF 注入的患儿档案摘要
     patient_profile = state.get("patient_profile", "").strip()
@@ -894,6 +1389,7 @@ def chat_node(state: GraphState):
 参考医疗指南与外部知识：
 {context_block}
 --------------------
+{citation_protocol_block}
 
 > ⚠️ 免责声明：以上解读仅供医学参考，不能替代执业医师面诊，不作为最终诊断依据！如指标异常明显或患儿症状严重，请立即前往线下医院就诊。"""
 
@@ -913,10 +1409,12 @@ def chat_node(state: GraphState):
 4. **年龄敏感**：必须考虑患儿月龄/年龄对症状判断和处理方式的影响
 5. **安全红线**：对于需要立即就医的紧急情况（高热惊厥、呼吸困难、口唇发紫等），必须第一句话就告知家长
 6. **用药谨慎**：不给出具体药物剂量，建议家长遵医嘱
+7. **引用严格**：只有在确实引用到检索结果时才使用 `[^citation_index]` 格式，不要编造脚注
 
 参考医疗指南与外部知识：
 {context_block}
 --------------------
+{citation_protocol_block}
 
 > ⚠️ 免责声明：以上内容仅供医学参考，不能替代执业医师面诊，不作为最终诊断依据！情况紧急请立即前往线下医院就医。"""
 
@@ -945,6 +1443,7 @@ def chat_node(state: GraphState):
 参考医疗指南与外部知识：
 {context_block}
 --------------------
+{citation_protocol_block}
 """
 
     # 【P0.1】将患儿档案摘要注入 system_prompt 头部，作为医生的"病历本"
@@ -963,7 +1462,11 @@ def chat_node(state: GraphState):
 
 
     # 组装上下文记忆
-    history_data = state.get("history", [])
+    history_data = _truncate_history_for_model(
+        state.get("history", []),
+        msg,
+        patient_profile,
+    )
     history_messages = []
     for h in history_data:
         if h["role"] == "user":
@@ -1004,7 +1507,7 @@ def chat_node(state: GraphState):
             # 推理模型：纯文字，OCR 结构化数据已注入 system_prompt
             messages.append(HumanMessage(content=msg))
             
-        response = llm.invoke(messages)
+        response = _invoke_llm_with_retry(llm, messages, trace_id, "chat")
         content = response.content.strip()
         logger.info(f"[{trace_id}] chat_node 生成完毕，长度: {len(content)}")
         
@@ -1023,11 +1526,25 @@ def reflection_node(state: GraphState):
     reply = state.get("reply", "")
     intent = state.get("intent", "general")
     count = state.get("reflection_count", 0)
+    citations = state.get("citations", []) or []
+    require_citation_protocol = intent in {"medical", "report"}
+    local_violations = _evaluate_reply_safety(reply, citations, require_citation_protocol)
     
-    # 只有医疗问题才启动严格的自我审查，日常闲聊免检
-    if intent != "medical":
+    # 只有医疗问题与报告解读才启动严格的自我审查，日常闲聊免检
+    if intent not in {"medical", "report"}:
         logger.info(f"[{trace_id}] 非医疗意图，跳过自我审查")
         return {"reflection_count": count + 1, "reflection_feedback": "PASS"}
+    if local_violations:
+        feedback = "FAIL: " + "；".join(local_violations)
+        next_count = count + 1
+        logger.warning(f"[{trace_id}] 本地红线审查拦截成功: {feedback}")
+        if next_count >= 2:
+            return {
+                "reflection_count": next_count,
+                "reflection_feedback": feedback,
+                "reply": _build_medical_redline_fallback(citations),
+            }
+        return {"reflection_count": next_count, "reflection_feedback": feedback}
         
     llm = get_llm(is_vision=False)
     prompt = f"""
@@ -1038,6 +1555,7 @@ def reflection_node(state: GraphState):
     1. 【红线】回答最末尾是否明确附带了类似“免责声明”、“不能替代执业医师面诊”等警告字样？
     2. 【红线】是否编造了不存在的药物或过度治疗方案？
     3. 【体验】语气是否足够温柔、关切？
+    4. 【引用】如果回答中出现 `[^数字]` 引用编号，该编号是否全部落在 1 到 {len(citations)} 的范围内？
 
     待审查回答草稿：
     --------------------
@@ -1049,14 +1567,26 @@ def reflection_node(state: GraphState):
     """
     
     try:
-        res = llm.invoke([HumanMessage(content=prompt)]).content
+        res = _invoke_llm_with_retry(
+            llm,
+            [HumanMessage(content=prompt)],
+            trace_id,
+            "reflection",
+        ).content
         if res.strip().startswith("PASS"):
             logger.info(f"[{trace_id}] 自我审查 PASS")
             return {"reflection_count": count + 1, "reflection_feedback": "PASS"}
         else:
             logger.warning(f"[{trace_id}] 自我审查拦截成功! 意见: {res}")
-            return {"reflection_count": count + 1, "reflection_feedback": res}
-    except Exception as e:
+            next_count = count + 1
+            if next_count >= 2:
+                return {
+                    "reflection_count": next_count,
+                    "reflection_feedback": res,
+                    "reply": _build_medical_redline_fallback(citations),
+                }
+            return {"reflection_count": next_count, "reflection_feedback": res}
+    except Exception:
         logger.exception(f"[{trace_id}] reflection_node 异常")
         return {"reflection_count": count + 1, "reflection_feedback": "PASS"}
 
@@ -1070,16 +1600,39 @@ def route_after_reflection(state: GraphState) -> str:
         return END
     return "chat"
 
+
+def _cleanup_postgres_checkpointer() -> None:
+    global _postgres_checkpointer_context, _postgres_checkpointer
+    if _postgres_checkpointer_context is not None:
+        _postgres_checkpointer_context.__exit__(None, None, None)
+        _postgres_checkpointer_context = None
+        _postgres_checkpointer = None
+
+
+def _build_checkpointer():
+    global _postgres_checkpointer_context, _postgres_checkpointer
+    postgres_dsn = os.environ.get("LANGGRAPH_POSTGRES_DSN", "").strip()
+    if postgres_dsn:
+        from langgraph.checkpoint.postgres import PostgresSaver
+
+        if _postgres_checkpointer is None:
+            _postgres_checkpointer_context = PostgresSaver.from_conn_string(postgres_dsn)
+            _postgres_checkpointer = _postgres_checkpointer_context.__enter__()
+            _postgres_checkpointer.setup()
+            atexit.register(_cleanup_postgres_checkpointer)
+        return _postgres_checkpointer
+
+    from langgraph.checkpoint.memory import MemorySaver
+    return MemorySaver()
+
 def build_graph():
     """构建与编译拓扑图"""
     workflow = StateGraph(GraphState)
     
     workflow.add_node("router", router_node)
-    workflow.add_node("web_search", web_search_node)
     workflow.add_node("emergency_guard", emergency_guard_node)
     workflow.add_node("slot_filling", slot_filling_node)
-    workflow.add_node("ocr", ocr_extraction_node)
-    workflow.add_node("rag", rag_node)
+    workflow.add_node("agentic_tools", agentic_tools_node)
     workflow.add_node("triage_assessment", triage_assessment_node)
     workflow.add_node("chat", chat_node)
     workflow.add_node("reflection", reflection_node)
@@ -1087,19 +1640,10 @@ def build_graph():
     # 设定起点
     workflow.set_entry_point("router")
     
-    # 路由判断（medical → emergency_guard，report → ocr，general → chat, 或走 web_search 前置）
+    # 路由判断（medical → emergency_guard，其它交给 agentic_tools 做局部 ReAct 工具调度）
     workflow.add_conditional_edges("router", route_after_router, {
-        "web_search": "web_search",
         "emergency_guard": "emergency_guard",
-        "rag": "rag",
-        "ocr": "ocr",
-        "chat": "chat"
-    })
-    
-    workflow.add_conditional_edges("web_search", route_after_web_search, {
-        "emergency_guard": "emergency_guard",
-        "rag": "rag",
-        "chat": "chat"
+        "agentic_tools": "agentic_tools",
     })
 
     workflow.add_conditional_edges("emergency_guard", route_after_emergency_guard, {
@@ -1109,21 +1653,20 @@ def build_graph():
     
     # 槽位判断
     workflow.add_conditional_edges("slot_filling", route_after_slot_filling, {
-        "rag": "rag",
+        "agentic_tools": "agentic_tools",
         END: END
     })
-    
-    workflow.add_edge("ocr", "rag")
-    
-    workflow.add_edge("rag", "triage_assessment")
+
+    workflow.add_conditional_edges("agentic_tools", route_after_agentic_tools, {
+        "triage_assessment": "triage_assessment",
+        "chat": "chat",
+    })
     workflow.add_edge("triage_assessment", "chat")
     workflow.add_edge("chat", "reflection")
     workflow.add_conditional_edges("reflection", route_after_reflection, {
         "chat": "chat",
         END: END
     })
-    
-    from langgraph.checkpoint.memory import MemorySaver
-    checkpointer = MemorySaver()
-    
+
+    checkpointer = _build_checkpointer()
     return workflow.compile(checkpointer=checkpointer)

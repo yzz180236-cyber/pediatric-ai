@@ -423,6 +423,42 @@ export class PatientService {
     }
   }
 
+  async appendClinicalMemory(
+    userId: string,
+    userFactsSummary: string,
+    triageSummary: string,
+  ): Promise<void> {
+    try {
+      const facts = userFactsSummary.trim();
+      const triage = triageSummary.trim();
+      if (!facts && !triage) return;
+
+      const profile = await this.getOrCreateProfile(userId);
+      profile.decryptSensitiveFields(this.cryptoService);
+
+      const timestamp = new Date().toLocaleDateString('zh-CN');
+      const segments = [
+        facts ? `用户事实：${facts.slice(0, 240)}` : '',
+        triage ? `分诊摘要：${triage.slice(0, 240)}` : '',
+      ].filter(Boolean);
+      const newEntry = `[${timestamp}] ${segments.join('；')}`;
+      profile.medicalHistory = profile.medicalHistory
+        ? profile.medicalHistory + '\n' + newEntry
+        : newEntry;
+
+      if (profile.medicalHistory.length > 2000) {
+        const entries = profile.medicalHistory.split('\n');
+        profile.medicalHistory = entries.slice(-10).join('\n');
+      }
+
+      profile.encryptSensitiveFields(this.cryptoService);
+      await this.patientProfileRepo.save(profile);
+    } catch (error: unknown) {
+      const err = error as Error;
+      this.logger.error('追加结构化临床记忆失败: ' + err.message);
+    }
+  }
+
   /**
    * 化验单 OCR 完成后，将关键指标摘要写入档案
    */

@@ -118,7 +118,8 @@ export class ChatService {
     message: string,
     image: string | null = null,
     imageFileId: string | null = null,
-    history: Record<string, unknown>[] = []
+    history: Record<string, unknown>[] = [],
+    traceId: string | null = null,
   ): Promise<NodeJS.ReadableStream> {
     try {
       const resolvedImage = imageFileId
@@ -133,6 +134,7 @@ export class ChatService {
         sender: 'user',
         content: message,
         imageUrl: image,
+        traceId,
       });
 
       // 【P0.1 核心】读取患儿档案摘要，注入给 AI Engine
@@ -146,7 +148,7 @@ export class ChatService {
       const response = await firstValueFrom(
         this.httpService.post(
           `${this.aiEngineUrl}/api/chat/stream`,
-          { sessionId, message, image: resolvedImage, history, patientProfile, patientContext },
+          { sessionId, message, image: resolvedImage, history, patientProfile, patientContext, traceId },
           { responseType: 'stream' }
         )
       );
@@ -201,6 +203,7 @@ export class ChatService {
           citations,
           assessment,
           duration: (Date.now() - startTime) / 1000,
+          traceId,
         });
 
         // 【P0.1】从槽位提取到的患儿信息（如月龄）同步更新档案
@@ -208,16 +211,14 @@ export class ChatService {
           await this.patientService.upsertFromSlots(userId, finalSlots);
         }
 
-        // 【P0.1】将本轮 AI 回复的前 200 字作为问诊摘要追加到档案历史
-        if (text.trim().length > 20) {
-          // 去掉 think 标签内容，只保留正式回复摘要
-          const cleanText = text.replace(/<think>[\s\S]*?<\/think>/i, '').trim();
-          const structuredSummary = typeof assessment?.summaryText === 'string' ? assessment.summaryText : '';
-          if (structuredSummary) {
-            await this.patientService.appendMedicalHistory(userId, structuredSummary);
-          } else if (cleanText.length > 0) {
-            await this.patientService.appendMedicalHistory(userId, cleanText.slice(0, 200));
-          }
+        // P2.5: 仅回灌结构化用户事实与分诊摘要，避免把 AI 长篇解释污染长期记忆
+        const factsSummary = Object.entries(finalSlots)
+          .filter(([key, value]) => !['status', '_last_update'].includes(key) && typeof value === 'string' && value.trim())
+          .map(([key, value]) => `${key}=${String(value).trim()}`)
+          .join('；');
+        const structuredSummary = typeof assessment?.summaryText === 'string' ? assessment.summaryText : '';
+        if (factsSummary || structuredSummary) {
+          await this.patientService.appendClinicalMemory(userId, factsSummary, structuredSummary);
         }
 
         // 【P0.1 & P0.2】如果本轮有 OCR 结果，更新化验单摘要
@@ -229,6 +230,7 @@ export class ChatService {
           event: 'chat_quality_summary',
           sessionId,
           userId,
+          traceId,
           hasFollowupCard: Boolean(finalSlots && finalSlots.status === 'missing'),
           hasAssessment: Boolean(assessment),
           triageLevel: assessment?.triageLevel ?? null,

@@ -3,6 +3,9 @@ export interface Citation {
   chapter?: string;
   content: string;
   sourceType?: 'guideline' | 'safety_rule' | 'model_inference';
+  sourcePath?: string;
+  retrievalConfidence?: 'high' | 'medium' | 'low';
+  score?: number;
 }
 
 export interface EvidenceLayer {
@@ -16,9 +19,25 @@ export interface DietaryFormPayload {
   recommendations: string[];
 }
 
+export interface OcrItemPayload {
+  name: string;
+  result: string;
+  unit?: string;
+  referenceRange?: string;
+  isAbnormal?: boolean;
+  confidence?: number;
+  warningFlag?: boolean;
+}
+
 export interface OcrResultPayload {
-  rawText: string;
-  abnormalItems: string[];
+  hospitalName?: string;
+  date?: string;
+  patientName?: string;
+  items: OcrItemPayload[];
+  overallConfidence?: number;
+  needsManualReview?: boolean;
+  lowConfidenceItems?: string[];
+  warningSummary?: string;
 }
 
 export interface FollowupPayload {

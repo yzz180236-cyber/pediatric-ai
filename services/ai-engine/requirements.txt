@@ -11,3 +11,6 @@ pypdf
 langchain-community
 python-multipart
 duckduckgo-search
+langgraph-checkpoint-postgres
+psycopg[binary]
+langfuse

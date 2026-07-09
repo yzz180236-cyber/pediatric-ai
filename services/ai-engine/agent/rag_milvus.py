@@ -20,6 +20,9 @@ class Citation(TypedDict):
     chapter: str
     content: str
     sourceType: str
+    sourcePath: str
+    score: float
+    retrievalConfidence: str
 
 class PediatricRAG:
     def __init__(self):
@@ -69,6 +72,16 @@ class PediatricRAG:
         if local_path.endswith(".txt") and raw_chapter.startswith("Page "):
             return "正文片段"
         return raw_chapter
+
+    def _resolve_source_path(self, raw_title: str) -> str:
+        return self.source_meta_map.get(raw_title, {}).get("localPath", raw_title)
+
+    def _to_confidence_label(self, score: float) -> str:
+        if score >= 0.9:
+            return "high"
+        if score >= 0.78:
+            return "medium"
+        return "low"
 
     def _char_overlap_score(self, query: str, text: str) -> float:
         query_chars = {char for char in query if re.match(r"[\u4e00-\u9fffA-Za-z0-9]", char)}
@@ -159,6 +172,9 @@ class PediatricRAG:
                         ),
                         "content": content,
                         "sourceType": "guideline",
+                        "sourcePath": self._resolve_source_path(raw_title),
+                        "score": round(final_score, 4),
+                        "retrievalConfidence": self._to_confidence_label(final_score),
                     }))
             if ranked_hits:
                 ranked_hits.sort(key=lambda item: item[0], reverse=True)
@@ -200,6 +216,6 @@ class PediatricRAG:
             context = "\n\n".join([c["content"] for c in citations]) if citations else "暂无相关指南数据。"
             return (context, citations)
             
-        except Exception as e:
+        except Exception:
             logger.exception("Milvus 检索失败")
-            return (f"检索失败: {str(e)}", [])
+            return ("知识检索暂时失败，请基于保守的儿科安全原则回答，并提示线下就医。", [])
