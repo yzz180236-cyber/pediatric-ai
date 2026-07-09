@@ -17,4 +17,7 @@ export class GrowthRecordEntity extends BaseEntity {
 
   @Column({ name: 'weight', type: 'numeric', precision: 5, scale: 2 })
   weight: number;
+
+  @Column({ name: 'height', type: 'numeric', precision: 5, scale: 2, nullable: true })
+  height: number | null;
 }

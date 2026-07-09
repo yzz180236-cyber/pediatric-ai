@@ -5,6 +5,8 @@ import './index.scss'
 interface GrowthChartProps {
   data: number[]
   months: string[]
+  metric?: 'weight' | 'height'
+  title?: string
 }
 
 const WHO_WEIGHT_REFERENCE = [
@@ -23,24 +25,27 @@ const WHO_WEIGHT_REFERENCE = [
   { month: 12, p3: 7.7, p15: 8.6, p50: 9.6, p85: 10.6, p97: 11.7 },
 ]
 
-export function GrowthChart({ data, months }: GrowthChartProps) {
+export function GrowthChart({ data, months, metric = 'weight', title }: GrowthChartProps) {
   if (data.length === 0) {
     return (
       <View className="growth-chart-container growth-chart-empty">
-        暂无体重记录
+        暂无{metric === 'weight' ? '体重' : '身高'}记录
       </View>
     )
   }
 
   const normalizedMonths = months.map((month) => Number(month))
-  const reference = normalizedMonths.map((monthValue) => {
-    const hit = WHO_WEIGHT_REFERENCE.find((item) => item.month === monthValue)
-    return hit ?? null
-  })
+  const reference = metric === 'weight'
+    ? normalizedMonths.map((monthValue) => {
+        const hit = WHO_WEIGHT_REFERENCE.find((item) => item.month === monthValue)
+        return hit ?? null
+      })
+    : []
 
   const options = {
     title: {
       text: '体重记录与 WHO 参考曲线',
+      text: title || (metric === 'weight' ? '体重记录与 WHO 参考曲线' : '身高记录'),
       left: 'center',
       textStyle: { fontSize: 14, color: '#333' }
     },
@@ -54,65 +59,69 @@ export function GrowthChart({ data, months }: GrowthChartProps) {
     },
     yAxis: {
       type: 'value',
-      name: '体重 (kg)',
+      name: metric === 'weight' ? '体重 (kg)' : '身高 (cm)',
       min: 0
     },
     series: [
+      ...(metric === 'weight'
+        ? [
+            {
+              name: 'WHO P3',
+              data: reference.map((item) => item?.p3 ?? null),
+              type: 'line',
+              smooth: true,
+              symbol: 'none',
+              lineStyle: { color: '#f2a7a0', type: 'dashed', width: 1 },
+            },
+            {
+              name: 'WHO P15',
+              data: reference.map((item) => item?.p15 ?? null),
+              type: 'line',
+              smooth: true,
+              symbol: 'none',
+              lineStyle: { color: '#f6c28b', type: 'dashed', width: 1 },
+            },
+            {
+              name: 'WHO P50',
+              data: reference.map((item) => item?.p50 ?? null),
+              type: 'line',
+              smooth: true,
+              symbol: 'none',
+              lineStyle: { color: '#7eb6ff', width: 2 },
+            },
+            {
+              name: 'WHO P85',
+              data: reference.map((item) => item?.p85 ?? null),
+              type: 'line',
+              smooth: true,
+              symbol: 'none',
+              lineStyle: { color: '#f6c28b', type: 'dashed', width: 1 },
+            },
+            {
+              name: 'WHO P97',
+              data: reference.map((item) => item?.p97 ?? null),
+              type: 'line',
+              smooth: true,
+              symbol: 'none',
+              lineStyle: { color: '#f2a7a0', type: 'dashed', width: 1 },
+            },
+          ]
+        : []),
       {
-        name: 'WHO P3',
-        data: reference.map((item) => item?.p3 ?? null),
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { color: '#f2a7a0', type: 'dashed', width: 1 },
-      },
-      {
-        name: 'WHO P15',
-        data: reference.map((item) => item?.p15 ?? null),
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { color: '#f6c28b', type: 'dashed', width: 1 },
-      },
-      {
-        name: 'WHO P50',
-        data: reference.map((item) => item?.p50 ?? null),
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { color: '#7eb6ff', width: 2 },
-      },
-      {
-        name: 'WHO P85',
-        data: reference.map((item) => item?.p85 ?? null),
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { color: '#f6c28b', type: 'dashed', width: 1 },
-      },
-      {
-        name: 'WHO P97',
-        data: reference.map((item) => item?.p97 ?? null),
-        type: 'line',
-        smooth: true,
-        symbol: 'none',
-        lineStyle: { color: '#f2a7a0', type: 'dashed', width: 1 },
-      },
-      {
-        name: '宝宝体重',
+        name: metric === 'weight' ? '宝宝体重' : '宝宝身高',
         data: data,
         type: 'line',
         smooth: true,
-        lineStyle: { color: '#00bcd4', width: 3 },
-        itemStyle: { color: '#00bcd4' },
+        lineStyle: { color: metric === 'weight' ? '#00bcd4' : '#4caf50', width: 3 },
+        itemStyle: { color: metric === 'weight' ? '#00bcd4' : '#4caf50' },
         areaStyle: {
           color: {
             type: 'linear',
             x: 0, y: 0, x2: 0, y2: 1,
             colorStops: [{
-                offset: 0, color: 'rgba(0, 188, 212, 0.5)'
+                offset: 0, color: metric === 'weight' ? 'rgba(0, 188, 212, 0.5)' : 'rgba(76, 175, 80, 0.45)'
             }, {
-                offset: 1, color: 'rgba(0, 188, 212, 0)'
+                offset: 1, color: metric === 'weight' ? 'rgba(0, 188, 212, 0)' : 'rgba(76, 175, 80, 0)'
             }]
           }
         }
@@ -122,7 +131,12 @@ export function GrowthChart({ data, months }: GrowthChartProps) {
 
   return (
     <View className="growth-chart-container">
-      <ReactECharts option={options} style={{ height: '300px', width: '100%' }} />
+      <ReactECharts
+        key={`${metric}-${months.join(',')}-${data.join(',')}`}
+        option={options}
+        notMerge
+        style={{ height: '300px', width: '100%' }}
+      />
     </View>
   )
 }

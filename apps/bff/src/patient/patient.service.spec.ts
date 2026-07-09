@@ -41,24 +41,28 @@ describe('PatientService growth records', () => {
       id: 'record-1',
       ageMonths: 4,
       weight: 6.8,
+      height: 63.2,
       createdAt: new Date('2026-07-07T00:00:00.000Z'),
     } as GrowthRecordEntity);
 
     const result = await service.addGrowthRecord('user-1', {
       ageMonths: 4,
       weight: 6.8,
+      height: 63.2,
     });
 
     expect(growthRecordRepo.create).toHaveBeenCalledWith({
       userId: 'user-1',
       ageMonths: 4,
       weight: 6.8,
+      height: 63.2,
     });
     expect(result).toEqual({
       id: 'record-1',
       ageMonths: 4,
       monthLabel: '4月龄',
       weight: 6.8,
+      height: 63.2,
       createdAt: '2026-07-07T00:00:00.000Z',
     });
   });
@@ -78,6 +82,7 @@ describe('PatientService growth records', () => {
       userId: 'user-1',
       ageMonths: 3,
       weight: 5.5,
+      height: 58,
       createdAt: new Date('2026-07-06T00:00:00.000Z'),
     } as GrowthRecordEntity);
     growthRecordRepo.save.mockImplementation(async (value) => ({
@@ -88,11 +93,32 @@ describe('PatientService growth records', () => {
     const result = await service.updateGrowthRecord('user-1', 'record-1', {
       ageMonths: 5,
       weight: 7.1,
+      height: 66.4,
     });
 
     expect(result.ageMonths).toBe(5);
     expect(result.monthLabel).toBe('5月龄');
     expect(result.weight).toBe(7.1);
+    expect(result.height).toBe(66.4);
+  });
+
+  it('allows saving growth records without height', async () => {
+    growthRecordRepo.create.mockImplementation((value) => value as GrowthRecordEntity);
+    growthRecordRepo.save.mockResolvedValue({
+      id: 'record-2',
+      ageMonths: 6,
+      weight: 7.5,
+      height: null,
+      createdAt: new Date('2026-07-08T00:00:00.000Z'),
+    } as GrowthRecordEntity);
+
+    const result = await service.addGrowthRecord('user-1', {
+      ageMonths: 6,
+      weight: 7.5,
+      height: null,
+    });
+
+    expect(result.height).toBeNull();
   });
 
   it('throws when deleting a missing growth record', async () => {

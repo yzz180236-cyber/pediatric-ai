@@ -99,6 +99,35 @@ export function ChatBubble({ msg, onAction }: ChatBubbleProps) {
     safety_rule: "安全规则",
     model_inference: "模型推断",
   };
+  const aggregatedCitations = (() => {
+    const sourceCitations = msg.citations || [];
+    const grouped = new Map<
+      string,
+      { title: string; chapter?: string; sourceType?: string; count: number }
+    >();
+
+    for (const citation of sourceCitations) {
+      const key = [
+        citation.title || "",
+        citation.chapter || "",
+        citation.sourceType || "",
+      ].join("::");
+
+      const existing = grouped.get(key);
+      if (existing) {
+        existing.count += 1;
+      } else {
+        grouped.set(key, {
+          title: citation.title,
+          chapter: citation.chapter,
+          sourceType: citation.sourceType,
+          count: 1,
+        });
+      }
+    }
+
+    return Array.from(grouped.values());
+  })();
 
   return (
     <View className={`chat-bubble-wrapper ${isUser ? "is-user" : "is-ai"}`}>
@@ -245,13 +274,15 @@ export function ChatBubble({ msg, onAction }: ChatBubbleProps) {
           </View>
         ) : null}
 
-        {msg.citations && msg.citations.length > 0 && (
+        {aggregatedCitations.length > 0 && (
           <View className="citations-area">
-            {msg.citations.map((c, i) => (
+            {aggregatedCitations.map((c, i) => (
               <View key={i} className="citation-tag">
                 <Text>
                   📚 [{i + 1}] {c.title}
+                  {c.chapter ? ` · ${c.chapter}` : ""}
                   {c.sourceType ? ` · ${citationTypeLabelMap[c.sourceType] || c.sourceType}` : ""}
+                  {c.count > 1 ? ` · 共${c.count}个片段` : ""}
                 </Text>
               </View>
             ))}

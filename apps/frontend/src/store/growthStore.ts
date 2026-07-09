@@ -10,17 +10,26 @@ interface GrowthState {
   clearRecords: () => void;
 }
 
+function sortGrowthRecords(records: GrowthRecordDto[]): GrowthRecordDto[] {
+  return [...records].sort((a, b) => {
+    if (a.ageMonths !== b.ageMonths) {
+      return a.ageMonths - b.ageMonths;
+    }
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
+  });
+}
+
 export const useGrowthStore = create<GrowthState>()((set) => ({
   records: [],
-  setRecords: (records) => set({ records }),
-  addRecord: (record) => set((state) => ({ records: [...state.records, record] })),
+  setRecords: (records) => set({ records: sortGrowthRecords(records) }),
+  addRecord: (record) => set((state) => ({ records: sortGrowthRecords([...state.records, record]) })),
   updateRecord: (record) =>
     set((state) => ({
-      records: state.records.map((item) => (item.id === record.id ? record : item)),
+      records: sortGrowthRecords(state.records.map((item) => (item.id === record.id ? record : item))),
     })),
   removeRecord: (recordId) =>
     set((state) => ({
-      records: state.records.filter((item) => item.id !== recordId),
+      records: sortGrowthRecords(state.records.filter((item) => item.id !== recordId)),
     })),
   clearRecords: () => set({ records: [] }),
 }));

@@ -40,6 +40,7 @@ export class PatientService {
       ageMonths: record.ageMonths,
       monthLabel: `${record.ageMonths}月龄`,
       weight: Number(record.weight),
+      height: record.height === null || record.height === undefined ? null : Number(record.height),
       createdAt: record.createdAt.toISOString(),
     }));
   }
@@ -105,12 +106,13 @@ export class PatientService {
   }
 
   async addGrowthRecord(userId: string, data: CreateGrowthRecordRequest): Promise<GrowthRecordDto> {
-    const { ageMonths, weight } = this.validateGrowthRecord(data);
+    const { ageMonths, weight, height } = this.validateGrowthRecord(data);
 
     const record = this.growthRecordRepo.create({
       userId,
       ageMonths,
       weight,
+      height,
     });
     const savedRecord = await this.growthRecordRepo.save(record);
 
@@ -119,6 +121,7 @@ export class PatientService {
       ageMonths: savedRecord.ageMonths,
       monthLabel: `${savedRecord.ageMonths}月龄`,
       weight: Number(savedRecord.weight),
+      height: savedRecord.height === null || savedRecord.height === undefined ? null : Number(savedRecord.height),
       createdAt: savedRecord.createdAt.toISOString(),
     };
   }
@@ -133,9 +136,10 @@ export class PatientService {
       throw new NotFoundException('生长记录不存在');
     }
 
-    const { ageMonths, weight } = this.validateGrowthRecord(data);
+    const { ageMonths, weight, height } = this.validateGrowthRecord(data);
     record.ageMonths = ageMonths;
     record.weight = weight;
+    record.height = height;
     const savedRecord = await this.growthRecordRepo.save(record);
 
     return {
@@ -143,6 +147,7 @@ export class PatientService {
       ageMonths: savedRecord.ageMonths,
       monthLabel: `${savedRecord.ageMonths}月龄`,
       weight: Number(savedRecord.weight),
+      height: savedRecord.height === null || savedRecord.height === undefined ? null : Number(savedRecord.height),
       createdAt: savedRecord.createdAt.toISOString(),
     };
   }
@@ -185,9 +190,14 @@ export class PatientService {
 
   private validateGrowthRecord(
     data: CreateGrowthRecordRequest | UpdateGrowthRecordRequest,
-  ): { ageMonths: number; weight: number } {
+  ): { ageMonths: number; weight: number; height: number | null } {
     const ageMonths = Number(data.ageMonths);
     const weight = Number(data.weight);
+    const rawHeight = data.height as unknown;
+    const height =
+      rawHeight === null || rawHeight === undefined || rawHeight === ''
+        ? null
+        : Number(rawHeight);
 
     if (!Number.isInteger(ageMonths) || ageMonths < 0 || ageMonths > 72) {
       throw new BadRequestException('月龄必须是 0-72 之间的整数');
@@ -196,7 +206,10 @@ export class PatientService {
     if (!Number.isFinite(weight) || weight <= 0) {
       throw new BadRequestException('体重必须是大于 0 的数字');
     }
-    return { ageMonths, weight };
+    if (height !== null && (!Number.isFinite(height) || height <= 0)) {
+      throw new BadRequestException('身高必须是大于 0 的数字');
+    }
+    return { ageMonths, weight, height };
   }
 
   private toProfileDto(profile: PatientProfileEntity): PatientProfileDto {
@@ -268,6 +281,9 @@ export class PatientService {
       });
       if (latestGrowthRecord) {
         lines.push(`- 最近体重：${Number(latestGrowthRecord.weight)} kg（${latestGrowthRecord.ageMonths} 月龄记录）`);
+        if (latestGrowthRecord.height !== null && latestGrowthRecord.height !== undefined) {
+          lines.push(`- 最近身高：${Number(latestGrowthRecord.height)} cm（${latestGrowthRecord.ageMonths} 月龄记录）`);
+        }
       }
 
       if (profile.gender) {
@@ -326,6 +342,10 @@ export class PatientService {
           : [],
         latestWeightKg: latestGrowthRecord ? Number(latestGrowthRecord.weight) : null,
         latestWeightAgeMonths: latestGrowthRecord?.ageMonths ?? null,
+        latestHeightCm:
+          latestGrowthRecord && latestGrowthRecord.height !== null && latestGrowthRecord.height !== undefined
+            ? Number(latestGrowthRecord.height)
+            : null,
         hasCompleteProfile: Boolean(profile.displayName && profile.birthday && profile.gender !== undefined),
       };
     } catch (error: unknown) {

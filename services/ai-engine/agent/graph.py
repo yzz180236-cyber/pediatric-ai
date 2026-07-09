@@ -1,8 +1,9 @@
 import os
 import logging
 import re
+import json
 from pydantic import BaseModel, Field
-from typing import Literal, Dict, List, Optional
+from typing import Literal, Dict, List, Optional, Union
 from langgraph.graph import StateGraph, END
 from langchain_openai import ChatOpenAI
 from langchain_core.messages import SystemMessage, HumanMessage, AIMessage
@@ -29,12 +30,45 @@ def get_llm(is_vision=False):
     model = os.environ.get("LLM_VISION_MODEL_NAME", "qwen-vl-plus") if is_vision else os.environ.get("LLM_MODEL_NAME", "qwen3.6-plus")
     return ChatOpenAI(api_key=api_key, base_url=base_url, model=model)
 
+
+def _extract_first_json_object(text: str) -> Optional[dict]:
+    if not text:
+        return None
+    stripped = text.strip()
+    try:
+        parsed = json.loads(stripped)
+        if isinstance(parsed, dict):
+            return parsed
+        if isinstance(parsed, list) and parsed and isinstance(parsed[0], dict):
+            return parsed[0]
+    except Exception:
+        pass
+
+    match = re.search(r"\{[\s\S]*\}", text)
+    if not match:
+        return None
+    try:
+        parsed = json.loads(match.group(0))
+        return parsed if isinstance(parsed, dict) else None
+    except Exception:
+        return None
+
+
+def _invoke_json_dict(prompt: str, trace_id: str) -> Optional[dict]:
+    try:
+        llm = get_llm(is_vision=False)
+        raw = llm.invoke([HumanMessage(content=prompt)]).content
+        return _extract_first_json_object(raw if isinstance(raw, str) else str(raw))
+    except Exception:
+        logger.exception(f"[{trace_id}] JSON 调用失败")
+        return None
+
 class IntentResult(BaseModel):
     intent: Literal["medical", "report", "general"]
     confidence: float
-    reasoning: str
-    needs_web_search: bool
-    search_query: str
+    reasoning: str = ""
+    needs_web_search: bool = False
+    search_query: str = ""
 
 
 class AssessmentResult(BaseModel):
@@ -42,10 +76,22 @@ class AssessmentResult(BaseModel):
     triage_reason: str
     trend_direction: Literal["worsening", "improving", "fluctuating", "stable", "unknown"] = "unknown"
     trend_reason: str = ""
-    recommended_actions: List[str] = Field(default_factory=list)
-    warning_signals: List[str] = Field(default_factory=list)
-    constraint_warnings: List[str] = Field(default_factory=list)
+    recommended_actions: Union[List[str], str] = Field(default_factory=list)
+    warning_signals: Union[List[str], str] = Field(default_factory=list)
+    constraint_warnings: Union[List[str], str] = Field(default_factory=list)
     age_band: str = ""
+
+
+def _ensure_text_list(value: Union[List[str], str]) -> List[str]:
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        text = value.strip()
+        if not text:
+            return []
+        parts = re.split(r"[；;\n、]+", text)
+        return [part.strip() for part in parts if part.strip()]
+    return []
 
 
 def _build_assessment_payload(result: AssessmentResult) -> Dict[str, object]:
@@ -54,9 +100,9 @@ def _build_assessment_payload(result: AssessmentResult) -> Dict[str, object]:
         "triageReason": result.triage_reason,
         "trendDirection": result.trend_direction,
         "trendReason": result.trend_reason,
-        "recommendedActions": result.recommended_actions,
-        "warningSignals": result.warning_signals,
-        "constraintWarnings": result.constraint_warnings,
+        "recommendedActions": _ensure_text_list(result.recommended_actions),
+        "warningSignals": _ensure_text_list(result.warning_signals),
+        "constraintWarnings": _ensure_text_list(result.constraint_warnings),
         "ageBand": result.age_band,
     }
 
@@ -110,6 +156,42 @@ def _detect_symptom_category(text: str) -> str:
     if re.search(r"皮疹|起疹子|红点|红疹|荨麻疹|湿疹", text):
         return "rash"
     return "general"
+
+
+def _looks_like_medical_query(text: str) -> bool:
+    return bool(re.search(
+        r"发烧|发热|咳嗽|腹泻|呕吐|皮疹|手足口病|支原体|肺炎|百日咳|麻疹|风疹|流感|指南|诊疗|预警|重症",
+        text,
+        re.IGNORECASE,
+    ))
+
+
+def _looks_like_knowledge_query(text: str) -> bool:
+    return bool(re.search(
+        r"指南|依据|重症预警|预警信号|是什么|有哪些|怎么判断|如何识别|说明",
+        text,
+        re.IGNORECASE,
+    ))
+
+
+def _is_growth_only_reply(text: str) -> bool:
+    compact = re.sub(r"\s+", "", text)
+    if re.fullmatch(r"[\d\.]+(个?月|岁)[、,，/]?[\d\.]+kg([、,，/]?[\d\.]+cm)?", compact, re.IGNORECASE):
+        return True
+    if re.fullmatch(r"[\d\.]+kg([、,，/]?[\d\.]+cm)?", compact, re.IGNORECASE):
+        return True
+    return False
+
+
+def _recent_user_text(state: GraphState, limit: int = 2) -> str:
+    recent_user_messages = [
+        str(item.get("content", "")).strip()
+        for item in state.get("history", [])
+        if item.get("role") == "user" and str(item.get("content", "")).strip()
+    ]
+    tail = recent_user_messages[-limit:] if recent_user_messages else []
+    current_messages = [str(item).strip() for item in state.get("messages", []) if str(item).strip()]
+    return "\n".join([*tail, *current_messages])
 
 
 SYMPTOM_TEMPLATES: Dict[str, List[Dict[str, object]]] = {
@@ -340,9 +422,17 @@ def router_node(state: GraphState):
         logger.info(f"[{trace_id}] 检测到图片，直接路由为 report")
         return {"intent": "report", "intent_confidence": 1.0}
 
-    llm = get_llm(is_vision=False).with_structured_output(IntentResult)
+    if _looks_like_medical_query(msg):
+        logger.info(f"[{trace_id}] 规则命中医学问句，直接路由为 medical")
+        return {
+            "intent": "medical",
+            "intent_confidence": 0.95,
+            "needs_web_search": False,
+            "search_query": "",
+        }
+
     classify_prompt = f"""你是一名儿科问诊系统的意图分类器。
-根据用户输入，输出一个结构化的意图分类结果。
+请以 JSON 结构化结果输出意图分类，不要输出任何额外解释文字。
 
 意图类型：
 - medical: 用户描述宝宝的症状、询问疾病、寻求医疗建议
@@ -351,20 +441,28 @@ def router_node(state: GraphState):
 
 用户输入："{msg}"
 
-请判断意图并给出置信度（0.0~1.0）。如果用户的问题需要查询最新的新闻、医学突破、政策、或者通识事实库，请将 needs_web_search 设为 true，并在 search_query 中填入搜索词。"""
+请判断意图并给出置信度（0.0~1.0）。如果用户的问题需要查询最新的新闻、医学突破、政策、或者通识事实库，请将 needs_web_search 设为 true，并在 search_query 中填入搜索词。
+输出必须是合法 JSON。"""
 
-    try:
-        result: IntentResult = llm.invoke([HumanMessage(content=classify_prompt)])
-        logger.info(f"[{trace_id}] 意图识别结果: {result.intent}, 置信度: {result.confidence}, 网搜: {result.needs_web_search}")
+    parsed = _invoke_json_dict(
+        classify_prompt + "\n请仅输出一个 JSON 对象，不要输出数组，不要输出 markdown。",
+        trace_id,
+    )
+    if parsed:
+        intent = str(parsed.get("intent") or parsed.get("intent_type") or "general")
+        confidence = float(parsed.get("confidence") or 0.0)
+        needs_web_search = bool(parsed.get("needs_web_search") or parsed.get("need_web_search") or False)
+        search_query = str(parsed.get("search_query") or parsed.get("query") or "")
+        if intent not in {"medical", "report", "general"}:
+            intent = "general"
+        logger.info(f"[{trace_id}] 意图识别结果: {intent}, 置信度: {confidence}, 网搜: {needs_web_search}")
         return {
-            "intent": result.intent, 
-            "intent_confidence": result.confidence,
-            "needs_web_search": getattr(result, "needs_web_search", False),
-            "search_query": getattr(result, "search_query", "")
+            "intent": intent,
+            "intent_confidence": confidence,
+            "needs_web_search": needs_web_search,
+            "search_query": search_query,
         }
-    except Exception as e:
-        logger.exception(f"[{trace_id}] router_node 异常")
-        return {"intent": "general", "intent_confidence": 0.0, "needs_web_search": False, "search_query": ""}
+    return {"intent": "general", "intent_confidence": 0.0, "needs_web_search": False, "search_query": ""}
 
 def route_after_router(state: GraphState) -> str:
     """条件路由：根据意图走向"""
@@ -411,12 +509,12 @@ def emergency_guard_node(state: GraphState):
     """危险信号前置熔断：命中急症信号时不再继续普通问诊链路"""
     trace_id = state.get("trace_id", "unknown")
     patient_context = state.get("patient_context", {}) or {}
-    text_parts = list(state.get("messages", []))
-    for history_item in state.get("history", []):
-        content = history_item.get("content")
-        if content:
-            text_parts.append(str(content))
-    merged_text = "\n".join(text_parts)
+    latest_message = state["messages"][-1] if state.get("messages") else ""
+    if _is_growth_only_reply(latest_message):
+        logger.info(f"[{trace_id}] 当前输入是纯生长数据补充，跳过急症熔断")
+        return {}
+
+    merged_text = _recent_user_text(state, limit=2)
 
     matched_signals: List[str] = []
     matched_reasons: List[str] = []
@@ -460,9 +558,9 @@ def route_after_emergency_guard(state: GraphState) -> str:
     return "slot_filling"
 
 class SlotStatus(BaseModel):
-    is_complete: bool
-    filled_slots: Dict[str, str]
-    missing_slots: List[str]
+    is_complete: bool = False
+    filled_slots: Dict[str, str] = Field(default_factory=dict)
+    missing_slots: List[str] = Field(default_factory=list)
     followup_question: Optional[str]
     # AI 动态生成的快捷选项（最多 5 个），方便家长快速点击回答
     followup_options: Optional[List[str]] = None
@@ -477,6 +575,13 @@ def slot_filling_node(state: GraphState):
     latest_message = all_messages[-1] if all_messages else ""
     category = _detect_symptom_category(conversation_text)
     template_slots = _extract_template_slots(conversation_text, existing_slots)
+
+    if category != "general" and _looks_like_knowledge_query(latest_message):
+        updated_slots = {**template_slots, "symptom_category": category}
+        if "symptom" not in updated_slots:
+            updated_slots["symptom"] = latest_message[:120]
+        logger.info(f"[{trace_id}] 命中医学知识问句，跳过追问直接进入 RAG")
+        return {"slots": {**updated_slots, "status": "filled"}}
 
     if category in SYMPTOM_TEMPLATES:
         updated_slots = {**template_slots, "symptom_category": category}
@@ -500,8 +605,7 @@ def slot_filling_node(state: GraphState):
             logger.info(f"[{trace_id}] 模板化追问已补齐核心字段: {category}")
             return {"slots": {**updated_slots, "status": "filled"}}
     
-    llm = get_llm(is_vision=False).with_structured_output(SlotStatus)
-    prompt = f"""分析以下完整的对话记录，提取儿科问诊关键信息。
+    prompt = f"""请以 JSON 结构化输出分析以下完整的对话记录，提取儿科问诊关键信息。
 必填信息：年龄/月龄、主诉症状
 选填信息：体温、持续时长、精神状态、大小便情况
 
@@ -517,8 +621,9 @@ def slot_filling_node(state: GraphState):
   例如询问体温时：["低热 37.3-38°C", "中热 38-39°C", "高热 39°C以上", "没有发烧"]
   选项必须是对追问的直接作答，不要出现与问题无关的内容。"""
     
+    parsed = _invoke_json_dict(prompt + "\n请仅输出一个 JSON 对象，不要输出数组，不要输出 markdown。", trace_id)
     try:
-        result: SlotStatus = llm.invoke([HumanMessage(content=prompt)])
+        result = SlotStatus(**(parsed or {}))
         if result.is_complete:
             logger.info(f"[{trace_id}] 槽位已全部收集: {result.filled_slots}")
             return {"slots": {**existing_slots, **result.filled_slots, "status": "filled"}}
@@ -534,7 +639,7 @@ def slot_filling_node(state: GraphState):
                 "followup_card": followup_card,
                 "reply": result.followup_question  # 同时保留 reply 作为文字兜底
             }
-    except Exception as e:
+    except Exception:
         logger.exception(f"[{trace_id}] slot_filling_node 异常")
         return {"slots": {"status": "error"}}
 
@@ -559,8 +664,7 @@ def triage_assessment_node(state: GraphState):
     history = state.get("history", []) or []
     trend_hint = _infer_trend_from_history(history, latest_message)
 
-    llm = get_llm(is_vision=False).with_structured_output(AssessmentResult)
-    prompt = f"""你是一名负责儿科线上分诊的资深医生，请根据用户描述、已提取槽位和档案信息，输出结构化分诊结论。
+    prompt = f"""你是一名负责儿科线上分诊的资深医生，请根据用户描述、已提取槽位和档案信息，以 JSON 结构化输出分诊结论。
 
 分诊级别定义：
 - home_observation: 可先居家观察
@@ -581,10 +685,12 @@ def triage_assessment_node(state: GraphState):
 5. warning_signals 填写当前已知的危险信号，没有则留空数组
 6. constraint_warnings 必须考虑年龄、体重、过敏史不足或高风险因素
 7. age_band 输出类似“0-3个月 / 4-6个月 / 7-12个月 / 1-3岁 / 3岁以上 / 年龄信息不足”
+8. 输出必须是合法 JSON，不要附加说明文字
 """
 
+    parsed = _invoke_json_dict(prompt + "\n请仅输出一个 JSON 对象，不要输出数组，不要输出 markdown。", trace_id)
     try:
-        result: AssessmentResult = llm.invoke([HumanMessage(content=prompt)])
+        result = AssessmentResult(**(parsed or {}))
         payload = _build_assessment_payload(result)
         if not payload["constraintWarnings"]:
             payload["constraintWarnings"] = _build_constraint_warnings(patient_context, latest_message)

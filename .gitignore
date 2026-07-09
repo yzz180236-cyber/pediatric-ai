@@ -45,6 +45,8 @@ services/ai-engine/private_uploads/
 services/ai-engine/debug_image.log
 services/ai-engine/*.sqlite
 services/ai-engine/*.db
+services/ai-engine/data/raw/**
+!services/ai-engine/data/raw/.gitkeep
 
 services/ai-engine/.env
 

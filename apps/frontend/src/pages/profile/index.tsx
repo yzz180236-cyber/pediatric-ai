@@ -54,12 +54,16 @@ export default function ProfilePage() {
   const [initialDisplayName, setInitialDisplayName] = useState('')
   const [initialGender, setInitialGender] = useState(0)
   const [initialKnownAllergens, setInitialKnownAllergens] = useState('')
+  const [activeGrowthMetric, setActiveGrowthMetric] = useState<'weight' | 'height'>('weight')
+  const [showAllGrowthRecords, setShowAllGrowthRecords] = useState(false)
   const {
     growthRecords,
     newAgeMonths,
     setNewAgeMonths,
     newWeight,
     setNewWeight,
+    newHeight,
+    setNewHeight,
     editing,
     saving: growthSaving,
     handleAddRecord,
@@ -67,6 +71,18 @@ export default function ProfilePage() {
     handleCancelEdit,
     handleDeleteRecord,
   } = useGrowthRecords()
+  const sortedGrowthRecords = [...growthRecords].sort((a, b) => {
+    if (a.ageMonths !== b.ageMonths) {
+      return a.ageMonths - b.ageMonths
+    }
+    return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime()
+  })
+  const heightGrowthRecords = sortedGrowthRecords.filter((record) => record.height !== null)
+  const defaultVisibleGrowthCount = 4
+  const visibleGrowthRecords =
+    showAllGrowthRecords || sortedGrowthRecords.length <= defaultVisibleGrowthCount
+      ? sortedGrowthRecords
+      : sortedGrowthRecords.slice(-defaultVisibleGrowthCount)
 
   const loadProfile = async () => {
     try {
@@ -369,7 +385,7 @@ export default function ProfilePage() {
 
           <View className='profile-section'>
             <View className='profile-section-title'>生长发育</View>
-            <View className='profile-section-tip'>按月记录体重更利于观察宝宝是否持续偏离 WHO 参考曲线。</View>
+            <View className='profile-section-tip'>建议同步记录月龄、体重和身高，才能更完整地观察宝宝的生长发育趋势。</View>
             <View className='profile-field'>
               <View className='profile-label'>生长记录</View>
             {!readonly && (
@@ -378,6 +394,8 @@ export default function ProfilePage() {
                 setNewAgeMonths={setNewAgeMonths}
                 newWeight={newWeight}
                 setNewWeight={setNewWeight}
+                newHeight={newHeight}
+                setNewHeight={setNewHeight}
                 editing={editing}
                 onCancelEdit={handleCancelEdit}
                 saving={growthSaving}
@@ -388,41 +406,99 @@ export default function ProfilePage() {
 
             <View className='profile-field'>
               <View className='profile-label'>已保存生长记录</View>
+              {sortedGrowthRecords.length > defaultVisibleGrowthCount && (
+                <View className='profile-growth-toolbar'>
+                  <View className='profile-growth-toolbar-copy'>
+                    默认展示最近 {defaultVisibleGrowthCount} 条，避免记录过长影响浏览。
+                  </View>
+                  <View
+                    className='profile-growth-toolbar-action'
+                    onClick={() => setShowAllGrowthRecords((current) => !current)}
+                  >
+                    {showAllGrowthRecords ? '收起' : `查看全部 ${sortedGrowthRecords.length} 条`}
+                  </View>
+                </View>
+              )}
               <View className='profile-growth-list'>
                 {growthRecords.length === 0 ? (
                   <View className='profile-dietary-empty'>暂无生长记录</View>
                 ) : (
-                  growthRecords.map((record) => (
-                    <View key={record.id} className='profile-growth-item'>
-                      <View>
-                        <View className='profile-growth-month'>{record.monthLabel}</View>
-                        <View className='profile-growth-weight'>{record.weight} kg</View>
-                      </View>
-                      <View className='profile-growth-actions'>
-                        {!readonly && (
-                          <>
-                            <View className='profile-growth-action edit' onClick={() => handleEditRecord(record)}>
-                              修改
+                  visibleGrowthRecords.map((record, index) => {
+                    const isLatest = sortedGrowthRecords[sortedGrowthRecords.length - 1]?.id === record.id
+                    const isLastVisible = index === visibleGrowthRecords.length - 1
+
+                    return (
+                      <View key={record.id} className={`profile-growth-timeline-item ${isLatest ? 'is-latest' : ''}`}>
+                        <View className='profile-growth-timeline-rail'>
+                          <View className='profile-growth-timeline-dot' />
+                          {!isLastVisible && <View className='profile-growth-timeline-line' />}
+                        </View>
+                        <View className='profile-growth-item'>
+                          <View className='profile-growth-main'>
+                            <View className='profile-growth-head'>
+                              <View className='profile-growth-month'>{record.monthLabel}</View>
+                              {isLatest && <View className='profile-growth-latest-badge'>最新</View>}
                             </View>
-                            <View className='profile-growth-action delete' onClick={() => handleDeleteRecord(record)}>
-                              删除
+                            <View className='profile-growth-metrics'>
+                              <Text className='profile-growth-metric'>{record.weight} kg</Text>
+                              <Text className='profile-growth-divider'>·</Text>
+                              <Text className='profile-growth-metric secondary'>
+                                {record.height ? `${record.height} cm` : '未记录身高'}
+                              </Text>
                             </View>
-                          </>
-                        )}
+                          </View>
+                          <View className='profile-growth-actions'>
+                            {!readonly && (
+                              <>
+                                <View className='profile-growth-action edit' onClick={() => handleEditRecord(record)}>
+                                  修改
+                                </View>
+                                <View className='profile-growth-action delete' onClick={() => handleDeleteRecord(record)}>
+                                  删除
+                                </View>
+                              </>
+                            )}
+                          </View>
+                        </View>
                       </View>
-                    </View>
-                  ))
+                    )
+                  })
                 )}
               </View>
             </View>
 
             <View className='profile-field'>
-              <View className='profile-label'>近期体重发育曲线</View>
+              <View className='profile-label'>近期生长发育曲线</View>
               <View className='profile-chart-card'>
-                <GrowthChart
-                  months={growthRecords.map((record) => `${record.ageMonths}`)}
-                  data={growthRecords.map((record) => record.weight)}
-                />
+                <View className='profile-chart-tabs'>
+                  <View
+                    className={`profile-chart-tab ${activeGrowthMetric === 'weight' ? 'active' : ''}`}
+                    onClick={() => setActiveGrowthMetric('weight')}
+                  >
+                    体重
+                  </View>
+                  <View
+                    className={`profile-chart-tab ${activeGrowthMetric === 'height' ? 'active' : ''}`}
+                    onClick={() => setActiveGrowthMetric('height')}
+                  >
+                    身高
+                  </View>
+                </View>
+
+                {activeGrowthMetric === 'weight' ? (
+                  <GrowthChart
+                    months={sortedGrowthRecords.map((record) => `${record.ageMonths}`)}
+                    data={sortedGrowthRecords.map((record) => record.weight)}
+                    metric='weight'
+                  />
+                ) : (
+                  <GrowthChart
+                    months={heightGrowthRecords.map((record) => `${record.ageMonths}`)}
+                    data={heightGrowthRecords.map((record) => Number(record.height))}
+                    metric='height'
+                    title='身高记录'
+                  />
+                )}
               </View>
             </View>
           </View>

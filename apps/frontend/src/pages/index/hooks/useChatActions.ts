@@ -505,27 +505,22 @@ export function useChatActions() {
     });
   };
 
-  const handleRichCardAction = async (action: string) => {
+  const handleRichCardAction = async (action: string, payload?: unknown) => {
     if (!currentSessionId) {
       Taro.showToast({ title: "当前会话不存在", icon: "none" });
       return;
     }
 
-    if (action === "followup_normal") {
+    if (action === "followup_option_selected") {
+      const optionText = String((payload as any)?.option || "").trim();
+      if (!optionText) {
+        return;
+      }
       trackEvent("chat_followup_option_selected", {
         sessionId: currentSessionId,
-        option: "followup_normal",
+        option: optionText,
       });
-      setInputValue("宝宝已退烧，精神状态还可以。");
-      return;
-    }
-
-    if (action === "followup_abnormal") {
-      trackEvent("chat_followup_option_selected", {
-        sessionId: currentSessionId,
-        option: "followup_abnormal",
-      });
-      setInputValue("宝宝仍然发烧，而且精神状态不太好。");
+      setInputValue(optionText);
       return;
     }
 

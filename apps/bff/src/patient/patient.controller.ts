@@ -14,11 +14,13 @@ import { PatientService } from './patient.service';
 class CreateGrowthRecordDto implements CreateGrowthRecordRequest {
   ageMonths: number;
   weight: number;
+  height?: number | null;
 }
 
 class UpdateGrowthRecordDto implements UpdateGrowthRecordRequest {
   ageMonths: number;
   weight: number;
+  height?: number | null;
 }
 
 class UpdatePatientProfileDto implements UpdatePatientProfileRequest {

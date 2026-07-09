@@ -113,6 +113,102 @@
   box-shadow: 0 4px 16px rgba(0,0,0,0.04);
 }
 
+.micro-growth-form {
+  padding: 10px 12px;
+  border: 1px solid rgba(103, 116, 196, 0.08);
+  background: linear-gradient(180deg, #ffffff 0%, #fafbff 100%);
+  box-shadow: 0 6px 16px rgba(31, 41, 55, 0.04);
+}
+
+.micro-growth-form-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  margin-bottom: 8px;
+}
+
+.micro-growth-form-badge {
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(93, 105, 214, 0.10);
+  color: #4d5cc4;
+  font-size: 10px;
+  font-weight: 700;
+}
+
+.micro-growth-form-note {
+  font-size: 11px;
+  color: #98a2b3;
+}
+
+.micro-growth-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.micro-growth-field {
+  min-width: 0;
+  padding: 7px 9px 5px;
+  border-radius: 10px;
+  background: #f4f6fb;
+  box-shadow: inset 0 0 0 1px rgba(221, 227, 238, 0.95);
+}
+
+.micro-growth-label {
+  margin-bottom: 2px;
+  font-size: 10px;
+  font-weight: 700;
+  color: #7a869f;
+  line-height: 1.2;
+}
+
+.micro-growth-input {
+  min-height: 24px !important;
+  padding: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+}
+
+.micro-growth-input .nut-input-value,
+.micro-growth-input input {
+  font-size: 14px !important;
+  font-weight: 700 !important;
+  color: #223250 !important;
+  line-height: 1.2 !important;
+}
+
+.micro-growth-actions {
+  display: flex;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 10px;
+  margin-top: 8px;
+}
+
+.micro-growth-submit {
+  min-width: 88px;
+  height: 34px !important;
+  padding: 0 14px !important;
+  border-radius: 10px !important;
+  font-size: 13px !important;
+  font-weight: 700 !important;
+  box-shadow: 0 6px 14px rgba(93, 105, 214, 0.14) !important;
+}
+
+.micro-growth-cancel {
+  min-width: auto !important;
+  height: 34px !important;
+  padding: 0 6px !important;
+  color: #7b87a2 !important;
+  font-size: 12px !important;
+  font-weight: 700 !important;
+  background: transparent !important;
+  border: none !important;
+}
+
 .card-title {
   font-size: 15px;
   font-weight: 600;

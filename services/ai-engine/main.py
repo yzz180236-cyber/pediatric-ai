@@ -97,6 +97,8 @@ async def chat_stream_endpoint(request: ChatRequest):
     async def generate():
         has_streamed_chunks = False
         final_reply = ""
+        emitted_citations = False
+        emitted_assessment = False
         
         current_node = ""
         async for event in agent_app.astream_events({
@@ -115,13 +117,14 @@ async def chat_stream_endpoint(request: ChatRequest):
                 if isinstance(output, dict) and "reply" in output:
                     final_reply = output["reply"]
 
-                if isinstance(output, dict) and output.get("assessment"):
+                if isinstance(output, dict) and output.get("assessment") and not emitted_assessment:
+                    emitted_assessment = True
                     yield f"data: {json.dumps({'assessment': output['assessment']}, ensure_ascii=False)}\n\n"
-                
-                if node_name == "rag":
+
+                if isinstance(output, dict):
                     citations = output.get("citations", [])
-                    if citations:
-                        # 提前下发来源
+                    if citations and not emitted_citations:
+                        emitted_citations = True
                         yield f"data: {json.dumps({'citations': citations}, ensure_ascii=False)}\n\n"
                         titles = [c['title'] for c in citations]
                         titles_str = "、".join(titles)

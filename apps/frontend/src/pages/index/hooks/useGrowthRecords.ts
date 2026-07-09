@@ -12,6 +12,7 @@ export function useGrowthRecords() {
   const token = useUserStore((state) => state.token);
   const [newAgeMonths, setNewAgeMonths] = useState("");
   const [newWeight, setNewWeight] = useState("");
+  const [newHeight, setNewHeight] = useState("");
   const [saving, setSaving] = useState(false);
   const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
 
@@ -38,6 +39,7 @@ export function useGrowthRecords() {
   const handleAddRecord = async () => {
     const ageMonths = Number(newAgeMonths);
     const weight = Number(newWeight);
+    const height = newHeight.trim() ? Number(newHeight) : null;
 
     if (!newAgeMonths.trim()) {
       Taro.showToast({ title: "请输入月龄", icon: "none" });
@@ -54,12 +56,18 @@ export function useGrowthRecords() {
       return;
     }
 
+    if (height !== null && (!Number.isFinite(height) || height <= 0)) {
+      Taro.showToast({ title: "请输入正确身高", icon: "none" });
+      return;
+    }
+
     setSaving(true);
     try {
       await ensureAuthenticated();
       const payload: CreateGrowthRecordRequest | UpdateGrowthRecordRequest = {
         ageMonths,
         weight,
+        height,
       };
       if (editingRecordId) {
         const savedRecord = await request<GrowthRecordDto>(`/patient/growth-records/${editingRecordId}`, {
@@ -86,6 +94,7 @@ export function useGrowthRecords() {
       }
       setNewAgeMonths("");
       setNewWeight("");
+      setNewHeight("");
       setEditingRecordId(null);
     } catch (error) {
       console.error("保存生长记录失败", error);
@@ -98,18 +107,20 @@ export function useGrowthRecords() {
     setEditingRecordId(record.id);
     setNewAgeMonths(String(record.ageMonths));
     setNewWeight(String(record.weight));
+    setNewHeight(record.height === null || record.height === undefined ? "" : String(record.height));
   };
 
   const handleCancelEdit = () => {
     setEditingRecordId(null);
     setNewAgeMonths("");
     setNewWeight("");
+    setNewHeight("");
   };
 
   const handleDeleteRecord = async (record: GrowthRecordDto) => {
     const result = await Taro.showModal({
       title: "删除记录",
-      content: `确定删除 ${record.monthLabel} / ${record.weight}kg 这条记录吗？`,
+      content: `确定删除 ${record.monthLabel} / ${record.weight}kg${record.height ? ` / ${record.height}cm` : ""} 这条记录吗？`,
     });
     if (!result.confirm) return;
 
@@ -138,6 +149,8 @@ export function useGrowthRecords() {
     setNewAgeMonths,
     newWeight,
     setNewWeight,
+    newHeight,
+    setNewHeight,
     editing: editingRecordId !== null,
     saving,
     handleAddRecord,

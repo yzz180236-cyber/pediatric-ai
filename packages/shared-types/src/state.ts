@@ -22,8 +22,11 @@ export interface OcrResultPayload {
 }
 
 export interface FollowupPayload {
-  nextDate: string;
-  tasks: string[];
+  question?: string;
+  options?: string[];
+  hours_passed?: number;
+  nextDate?: string;
+  tasks?: string[];
 }
 
 export interface AssessmentPayload {

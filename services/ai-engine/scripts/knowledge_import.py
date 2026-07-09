@@ -12,6 +12,7 @@ logger = logging.getLogger(__name__)
 
 COLLECTION_NAME = "pediatric_guidelines"
 MILVUS_URI = os.environ.get("MILVUS_URI", "http://localhost:19530")
+EMBED_BATCH_SIZE = 10
 
 def init_collection(client: MilvusClient, dim: int):
     if client.has_collection(COLLECTION_NAME):
@@ -75,7 +76,10 @@ def process_file(file_path: str, client: MilvusClient, embeddings: OpenAIEmbeddi
 
     insert_data = []
     texts = [chunk.page_content for chunk in chunks]
-    vectors = embeddings.embed_documents(texts)
+    vectors = []
+    for i in range(0, len(texts), EMBED_BATCH_SIZE):
+        batch_texts = texts[i:i + EMBED_BATCH_SIZE]
+        vectors.extend(embeddings.embed_documents(batch_texts))
 
     for i, chunk in enumerate(chunks):
         insert_data.append({
