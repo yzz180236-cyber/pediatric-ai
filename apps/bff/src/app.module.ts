@@ -14,6 +14,7 @@ import { AuthModule } from './auth/auth.module';
 import { RedisModule } from '@nestjs-modules/ioredis';
 import { SessionService } from './common/services/session.service';
 import { PatientModule } from './patient/patient.module';
+import { AntiReplayGuard } from './common/guards/anti-replay.guard';
 
 @Module({
   imports: [
@@ -72,6 +73,10 @@ import { PatientModule } from './patient/patient.module';
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard, // 全局挂载限流器
+    },
+    {
+      provide: APP_GUARD,
+      useClass: AntiReplayGuard, // 全局挂载国密防重放与防篡改守卫
     },
   ],
 })

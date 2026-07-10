@@ -8,6 +8,7 @@ interface ChatInputBarProps {
   value: string;
   loading: boolean;
   imageUrl?: string;
+  disabled?: boolean; // 新增：是否禁用（用于紧急重症熔断）
   onChange: (val: string) => void;
   onSend: () => void;
   onClear: () => void;
@@ -21,6 +22,7 @@ export function ChatInputBar({
   value,
   loading,
   imageUrl,
+  disabled = false,
   onChange,
   onSend,
   onStop,
@@ -30,6 +32,8 @@ export function ChatInputBar({
   onPasteFile,
 }: ChatInputBarProps) {
   useEffect(() => {
+    if (disabled) return;
+    
     // 支持 Web 端原生的剪贴板图片粘贴
     const handlePaste = (e: any) => {
       try {
@@ -73,33 +77,48 @@ export function ChatInputBar({
 
     window.addEventListener("paste", handlePaste, true);
     return () => window.removeEventListener("paste", handlePaste, true);
-  }, [onPasteFile]);
+  }, [onPasteFile, disabled]);
+
+  const handleIconClick = (action: () => void) => {
+    if (disabled) return;
+    action();
+  };
+
+  const handleSendAction = () => {
+    if (disabled) return;
+    onSend();
+  };
 
   return (
-    <View className="chat-input-wrapper">
+    <View className={`chat-input-wrapper ${disabled ? "disabled-triage-emergency" : ""}`}>
       {imageUrl && (
         <View className="image-preview-area">
           <Image src={imageUrl} className="preview-img" mode="aspectFill" />
-          <View className="close-btn" onClick={onClearImage}>
+          <View className="close-btn" onClick={disabled ? undefined : onClearImage}>
             <Close size={12} color="#fff" />
           </View>
         </View>
       )}
       <View className="chat-input-bar">
         <View className="action-icons">
-          <Trash size={20} className="action-icon" onClick={onClear} />
+          <Trash 
+            size={20} 
+            className={`action-icon ${disabled ? "disabled" : ""}`} 
+            onClick={() => handleIconClick(onClear)} 
+          />
           <Photograph
             size={20}
-            className="action-icon"
-            onClick={onUploadImage}
+            className={`action-icon ${disabled ? "disabled" : ""}`}
+            onClick={() => handleIconClick(onUploadImage)}
           />
         </View>
         <Input
-          value={value}
-          onChange={onChange}
-          placeholder="请输入症状"
-          className="chat-input"
-          onConfirm={onSend}
+          value={disabled ? "" : value}
+          onChange={disabled ? () => {} : onChange}
+          disabled={disabled}
+          placeholder={disabled ? "重症就医熔断中，问诊已截止" : "请输入症状"}
+          className={`chat-input ${disabled ? "disabled" : ""}`}
+          onConfirm={disabled ? undefined : onSend}
         />
         {loading ? (
           <View className="chat-stop-btn-wrapper" onClick={onStop}>
@@ -107,8 +126,13 @@ export function ChatInputBar({
             <View className="stop-square"></View>
           </View>
         ) : (
-          <Button type="primary" className="chat-send-btn" onClick={onSend}>
-            发送
+          <Button 
+            type={disabled ? "default" : "primary"} 
+            disabled={disabled}
+            className={`chat-send-btn ${disabled ? "disabled" : ""}`} 
+            onClick={handleSendAction}
+          >
+            {disabled ? "已熔断" : "发送"}
           </Button>
         )}
       </View>

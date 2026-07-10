@@ -5,6 +5,8 @@ interface ChatState {
   currentSessionId: string | null;
   sessions: any[];
   messages: Message[];
+  isEmergencyNow: boolean; // 是否处于重症熔断警报状态
+  setEmergencyNow: (val: boolean) => void;
   addMessage: (msg: Message) => void;
   updateMessage: (id: number, updater: (msg: Message) => Message) => void;
   setMessages: (msgs: Message[]) => void;
@@ -23,12 +25,15 @@ export const useChatStore = create<ChatState>((set) => ({
       sender: 'ai',
     }
   ],
+  isEmergencyNow: false,
+  setEmergencyNow: (val) => set({ isEmergencyNow: val }),
   addMessage: (msg) => set((state) => ({ messages: [...state.messages, msg] })),
   updateMessage: (id, updater) => set((state) => ({
     messages: state.messages.map(msg => msg.id === id ? updater(msg) : msg)
   })),
   setMessages: (msgs) => set({ messages: msgs }),
   clearMessages: () => set({ 
+    isEmergencyNow: false,
     messages: [{
       id: 1,
       text: '你好，我是智慧儿科 AI 助手，请问宝宝今天有什么不适？',

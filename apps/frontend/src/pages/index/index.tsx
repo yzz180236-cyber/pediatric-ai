@@ -4,6 +4,7 @@ import { View, ScrollView } from "@tarojs/components";
 import { Input, Button } from "@nutui/nutui-react-taro";
 import { ChatBubble } from "../../components/ChatBubble";
 import { ChatInputBar } from "../../components/ChatInputBar";
+import { PEWSEmergencyModal } from "../../components/PEWSEmergencyModal";
 import { useChatActions } from "./hooks/useChatActions";
 import { useChatStore } from "../../store/chatStore";
 import { useUserStore } from "../../store/userStore";
@@ -41,12 +42,20 @@ export default function Index() {
 
   const sessions = useChatStore((state) => state.sessions);
   const currentSessionId = useChatStore((state) => state.currentSessionId);
+  const isEmergencyNow = useChatStore((state) => state.isEmergencyNow);
+  
   const token = useUserStore((state) => state.token);
   const role = useUserStore((state) => state.role);
   const authSource = useUserStore((state) => state.authSource);
   const showDevLogin = isH5Dev && !token;
   const isDoctor = role === "doctor";
   const roleLabel = isDoctor ? "医生" : "家长";
+
+  // 从当前会话的 messages 中动态抓取触发重症的分诊数据以填充弹窗文案
+  const lastAssessmentMsg = [...messages].reverse().find(
+    (m) => m.type === "assessment_card" && m.payload
+  );
+  const assessmentPayload = lastAssessmentMsg?.payload;
 
   useEffect(() => {
     if (showDevLogin) {
@@ -281,6 +290,7 @@ export default function Index() {
             <ChatInputBar
               value={inputValue}
               imageUrl={imageUrl}
+              disabled={isEmergencyNow} // 重症熔断阻断
               onChange={setInputValue}
               onSend={handleSend}
               onStop={handleStop}
@@ -320,6 +330,12 @@ export default function Index() {
           </View>
         )}
       </View>
+      {/* 强阻断重症就医模态警报弹窗 */}
+      <PEWSEmergencyModal
+        visible={isEmergencyNow}
+        triageReason={assessmentPayload?.triageReason}
+        warningSignals={assessmentPayload?.warningSignals}
+      />
     </View>
   );
 }

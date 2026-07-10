@@ -1,22 +1,24 @@
-import sys
+import unittest
 import asyncio
-import json
-sys.path.append(".")
 from agent.graph import build_graph
 
-agent_app = build_graph()
+class StreamTests(unittest.IsolatedAsyncioTestCase):
+    async def test_agent_astream_events(self) -> None:
+        agent_app = build_graph()
+        
+        events = []
+        async for event in agent_app.astream_events(
+            {
+                "messages": ["帮忙分析这份报告"], 
+                "image_data": "private://example_upload.jpg",
+                "history": [{"role": "assistant", "content": "你好"}]
+            }, 
+            config={"configurable": {"thread_id": "test-stream-thread"}},
+            version="v2"
+        ):
+            events.append(event)
+            
+        self.assertGreater(len(events), 0)
 
-async def main():
-    async for event in agent_app.astream_events({
-        "messages": ["帮忙分析这份报告"], 
-        "image_data": "private://example_upload.jpg",
-        "history": [{"role": "assistant", "content": "你好"}]
-    }, version="v2"):
-        if event["event"] == "on_chat_model_stream":
-            if "chunk" in event["data"]:
-                content = event["data"]["chunk"].content
-                if content:
-                    print(content, end="", flush=True)
-
-asyncio.run(main())
-print("\nDone")
+if __name__ == "__main__":
+    unittest.main()

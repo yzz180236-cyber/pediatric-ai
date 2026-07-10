@@ -1,0 +1,251 @@
+.pews-emergency-overlay {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 9999;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  background-color: rgba(18, 5, 5, 0.85);
+  backdrop-filter: blur(20px) saturate(180%);
+  -webkit-backdrop-filter: blur(20px) saturate(180%);
+  padding: 24px;
+}
+
+.pews-emergency-card {
+  width: 100%;
+  max-width: 360px;
+  background: rgba(255, 255, 255, 0.95);
+  border-radius: 24px;
+  padding: 32px 24px 28px 24px;
+  box-shadow: 0 20px 50px rgba(255, 77, 79, 0.4), 0 0 0 1px rgba(255, 77, 79, 0.15);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  position: relative;
+  overflow: hidden;
+  box-sizing: border-box;
+
+  &::before {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    height: 6px;
+    background: linear-gradient(90deg, #ff4d4f, #ff7875, #ff4d4f);
+  }
+}
+
+/* 警报徽标脉冲微动效 */
+.warning-badge-wrapper {
+  position: relative;
+  width: 72px;
+  height: 72px;
+  margin-bottom: 16px;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.warning-badge-pulse {
+  position: absolute;
+  width: 100%;
+  height: 100%;
+  border-radius: 50%;
+  background: rgba(255, 77, 79, 0.35);
+  animation: alarm-pulse 2s infinite ease-out;
+}
+
+.warning-badge {
+  position: relative;
+  width: 56px;
+  height: 56px;
+  background: linear-gradient(135deg, #ff4d4f, #ff7875);
+  border-radius: 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+  font-size: 28px;
+  box-shadow: 0 6px 16px rgba(255, 77, 79, 0.4);
+}
+
+.modal-title {
+  font-size: 20px;
+  font-weight: 700;
+  color: #1a1a1a;
+  margin-bottom: 16px;
+  text-align: center;
+  letter-spacing: 0.5px;
+}
+
+.warning-intro-box {
+  background: rgba(255, 77, 79, 0.08);
+  border-left: 4px solid #ff4d4f;
+  border-radius: 8px;
+  padding: 12px 14px;
+  margin-bottom: 20px;
+  width: 100%;
+  box-sizing: border-box;
+}
+
+.warning-intro-text {
+  font-size: 13px;
+  color: #d32f2f;
+  line-height: 1.6;
+  font-weight: 600;
+  display: block;
+}
+
+.warning-details-section {
+  width: 100%;
+  margin-bottom: 20px;
+  background: #fdfdfd;
+  border: 1px solid #f0f0f0;
+  border-radius: 12px;
+  padding: 14px;
+  box-sizing: border-box;
+}
+
+.detail-item-block {
+  margin-bottom: 14px;
+  width: 100%;
+
+  &:last-child {
+    margin-bottom: 0;
+  }
+}
+
+.detail-label {
+  font-size: 13px;
+  font-weight: 700;
+  color: #4a4a4a;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.detail-value-text {
+  font-size: 12px;
+  color: #666;
+  line-height: 1.6;
+  display: block;
+}
+
+.signals-tag-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  margin-top: 4px;
+}
+
+.signal-tag {
+  background: #fffbe6;
+  color: #d46b08;
+  border: 1px solid #ffe58f;
+  font-size: 11px;
+  font-weight: 600;
+  padding: 3px 8px;
+  border-radius: 6px;
+  display: inline-block;
+}
+
+.hospital-alert-box {
+  background: #fafafa;
+  border: 1px dashed #d9d9d9;
+  border-radius: 12px;
+  padding: 14px;
+  width: 100%;
+  margin-bottom: 24px;
+  box-sizing: border-box;
+}
+
+.hospital-alert-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #1a1a1a;
+  display: block;
+  margin-bottom: 6px;
+}
+
+.hospital-alert-body {
+  font-size: 12px;
+  color: #555;
+  line-height: 1.6;
+  display: block;
+}
+
+/* 按钮区域 */
+.emergency-actions-area {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+.call-120-btn {
+  background: linear-gradient(135deg, #ff4d4f, #d32f2f) !important;
+  color: #fff !important;
+  border: none !important;
+  font-weight: 700 !important;
+  font-size: 15px !important;
+  height: 48px !important;
+  line-height: 48px !important;
+  border-radius: 12px !important;
+  box-shadow: 0 4px 15px rgba(255, 77, 79, 0.3) !important;
+  transition: all 0.2s ease;
+
+  &:active {
+    transform: scale(0.98);
+    opacity: 0.9;
+  }
+}
+
+.find-hospital-btn {
+  background: #ffffff !important;
+  color: #4a4a4a !important;
+  border: 1px solid #d9d9d9 !important;
+  font-weight: 600 !important;
+  font-size: 13px !important;
+  height: 44px !important;
+  line-height: 44px !important;
+  border-radius: 12px !important;
+  transition: all 0.2s ease;
+
+  &:active {
+    transform: scale(0.98);
+    background: #f5f5f5 !important;
+  }
+}
+
+/* 动画效果 */
+@keyframes alarm-pulse {
+  0% {
+    transform: scale(0.85);
+    opacity: 0.9;
+  }
+  50% {
+    transform: scale(1.15);
+    opacity: 0.35;
+  }
+  100% {
+    transform: scale(1.4);
+    opacity: 0;
+  }
+}
+
+.animate-scale-up {
+  animation: scale-up 0.35s cubic-bezier(0.34, 1.56, 0.64, 1) both;
+}
+
+@keyframes scale-up {
+  0% {
+    transform: scale(0.85);
+    opacity: 0;
+  }
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+}

@@ -138,6 +138,10 @@ export function useChatActions() {
       });
       useChatStore.getState().setMessages(mapMessages(msgs));
       setCurrentSessionId(sessionId);
+      
+      // 检测该历史会话最新的评估是否存在重症就医标识
+      const hasEmergency = msgs.some(m => m.payload?.triageLevel === 'emergency_now' || m.assessment?.triageLevel === 'emergency_now');
+      useChatStore.getState().setEmergencyNow(hasEmergency);
     } catch (e) {
       console.error("加载会话记录失败", e);
     }
@@ -337,6 +341,12 @@ export function useChatActions() {
                       hasSummary: Boolean(data.assessment.summaryText),
                       evidenceLayerCount: data.assessment.evidenceLayers?.length || 0,
                     });
+                    
+                    // 触碰紧急重症，切断后续非就医交互，触发全局熔断
+                    if (data.assessment.triageLevel === 'emergency_now') {
+                      useChatStore.getState().setEmergencyNow(true);
+                    }
+
                     if (useChatStore.getState().messages.find((msg) => msg.id === aiMsgId + OCR_CARD_OFFSET)) {
                       addMessage({
                         id: aiMsgId + ASSESSMENT_CARD_OFFSET,
@@ -469,6 +479,12 @@ export function useChatActions() {
                       hasSummary: Boolean(data.assessment.summaryText),
                       evidenceLayerCount: data.assessment.evidenceLayers?.length || 0,
                     });
+                    
+                    // 触碰紧急重症，切断后续非就医交互，触发全局熔断
+                    if (data.assessment.triageLevel === 'emergency_now') {
+                      useChatStore.getState().setEmergencyNow(true);
+                    }
+
                     if (useChatStore.getState().messages.find((msg) => msg.id === aiMsgId + OCR_CARD_OFFSET)) {
                       addMessage({
                         id: aiMsgId + ASSESSMENT_CARD_OFFSET,

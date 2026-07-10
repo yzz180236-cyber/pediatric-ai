@@ -274,45 +274,66 @@ def calculate_pews(slots: dict[str, Any]) -> tuple[int, dict[str, int]]:
     PEWS 评分涵盖三个维度：精神行为表现 (Behavior)、心血管状态 (Cardiovascular)、呼吸状态 (Respiratory)。
     每个维度得分为 0~3 分，总分为 0~9 分。
     """
+    def _is_negated(text: str, keyword: str) -> bool:
+        """检查文本中的某个关键字是否被前置的否定修饰词所否定"""
+        negation_words = ["没有", "无", "未见", "未出现", "排除", "不伴有", "非", "未伴随", "否认", "未曾", "无明显"]
+        pos = 0
+        while True:
+            pos = text.find(keyword, pos)
+            if pos == -1:
+                break
+            # 向前探查最多 6 个字
+            start = max(0, pos - 6)
+            prefix = text[start:pos]
+            for neg in negation_words:
+                if neg in prefix:
+                    neg_pos = prefix.find(neg)
+                    inter_text = prefix[neg_pos + len(neg):]
+                    # 确保否定词和关键字之间没有标点符号阻断
+                    if not any(punc in inter_text for punc in ["，", "。", "！", "？", ",", ".", "!", "?", ";", "；"]):
+                        return True
+            pos += len(keyword)
+        return False
+
     scores = {"behavior": 0, "cardiovascular": 0, "respiratory": 0}
     
     # 1. 精神行为维度评估
     behavior_text = str(slots.get("behavior") or slots.get("mental_status") or "").lower()
     if behavior_text:
         # 3分：昏睡、对刺激反应极低/无反应、神志不清、谵妄、难以唤醒
-        if any(kw in behavior_text for kw in ["昏睡", "神志不清", "无反应", "谵妄", "难以唤醒", "唤不醒"]):
+        if any(kw in behavior_text and not _is_negated(behavior_text, kw) for kw in ["昏睡", "神志不清", "无反应", "谵妄", "难以唤醒", "唤不醒"]):
             scores["behavior"] = 3
         # 2分：难以唤醒、对刺激反应迟钝、极度萎靡、昏昏欲睡
-        elif any(kw in behavior_text for kw in ["反应迟钝", "极其萎靡", "嗜睡", "极其不好", "精神极差"]):
+        elif any(kw in behavior_text and not _is_negated(behavior_text, kw) for kw in ["反应迟钝", "极其萎靡", "嗜睡", "极其不好", "精神极差"]):
             scores["behavior"] = 2
         # 1分：精神萎靡、神志淡漠、爱哭闹、烦躁不安
-        elif any(kw in behavior_text for kw in ["萎靡", "淡漠", "烦躁", "哭闹", "精神差", "精神不好", "懒动"]):
+        elif any(kw in behavior_text and not _is_negated(behavior_text, kw) for kw in ["萎靡", "淡漠", "烦躁", "哭闹", "精神差", "精神不好", "懒动"]):
             scores["behavior"] = 1
             
     # 2. 心血管与末梢循环维度评估
     cv_text = str(slots.get("cardiovascular") or slots.get("skin_circulation") or "").lower()
     if cv_text:
         # 3分：发绀、明显青紫、发紫、毛细血管再充盈时间 > 3秒
-        if any(kw in cv_text for kw in ["发绀", "青紫", "发紫", "再充盈>3", "充盈大于3"]):
+        if any(kw in cv_text and not _is_negated(cv_text, kw) for kw in ["发绀", "青紫", "发紫", "再充盈>3", "充盈大于3"]):
             scores["cardiovascular"] = 3
         # 2分：手脚冰凉、大理石样花纹、毛细血管再充盈 3 秒左右
-        elif any(kw in cv_text for kw in ["冰凉", "冰冷", "凉", "大理石", "花纹", "再充盈3"]):
+        elif any(kw in cv_text and not _is_negated(cv_text, kw) for kw in ["冰凉", "冰冷", "凉", "大理石", "花纹", "再充盈3"]):
             scores["cardiovascular"] = 2
         # 1分：面色苍白、面色灰暗
-        elif any(kw in cv_text for kw in ["苍白", "灰暗", "白", "无血色"]):
+        elif any(kw in cv_text and not _is_negated(cv_text, kw) for kw in ["苍白", "灰暗", "白", "无血色"]):
             scores["cardiovascular"] = 1
             
     # 3. 呼吸维度评估
     resp_text = str(slots.get("respiratory") or slots.get("respiratory_status") or "").lower()
     if resp_text:
         # 3分：叹气样呼吸、呼吸暂停、喘憋窒息、青紫
-        if any(kw in resp_text for kw in ["叹气", "暂停", "发绀", "窒息", "喘憋", "青紫"]):
+        if any(kw in resp_text and not _is_negated(resp_text, kw) for kw in ["叹气", "暂停", "发绀", "窒息", "喘憋", "青紫"]):
             scores["respiratory"] = 3
         # 2分：明显三凹征（锁骨上/肋间/剑突下凹陷）、明显呻吟、呼吸急促/困难
-        elif any(kw in resp_text for kw in ["三凹征", "凹陷", "呻吟", "急促", "极快", "呼吸困难"]):
+        elif any(kw in resp_text and not _is_negated(resp_text, kw) for kw in ["三凹征", "凹陷", "呻吟", "急促", "极快", "呼吸困难"]):
             scores["respiratory"] = 2
         # 1分：呼吸轻度增快、轻度三凹征、气促
-        elif any(kw in resp_text for kw in ["气促", "稍快", "轻度三凹", "增快"]):
+        elif any(kw in resp_text and not _is_negated(resp_text, kw) for kw in ["气促", "稍快", "轻度三凹", "增快"]):
             scores["respiratory"] = 1
             
     total_score = sum(scores.values())

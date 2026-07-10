@@ -43,6 +43,18 @@ class PearsEvaluationTests(unittest.TestCase):
         self.assertEqual(details["behavior"], 3)
         self.assertEqual(details["cardiovascular"], 2)
 
+    def test_calculate_pews_with_negatives(self) -> None:
+        slots = {
+            "behavior": "宝宝今天精神很好，没有萎靡，没有烦躁",
+            "cardiovascular": "面色红润，没有苍白",
+            "respiratory": "呼吸非常平稳，未见呻吟，也未见呼吸急促，没有三凹征"
+        }
+        score, details = calculate_pews(slots)
+        self.assertEqual(score, 0)
+        self.assertEqual(details["behavior"], 0)
+        self.assertEqual(details["cardiovascular"], 0)
+        self.assertEqual(details["respiratory"], 0)
+
     def test_slot_filling_node_triggers_pews_emergency(self) -> None:
         state: GraphState = {
             "trace_id": "test-pews-emergency",
