@@ -268,6 +268,57 @@ def _build_assessment_payload(result: AssessmentResult) -> Dict[str, object]:
     }
 
 
+def calculate_pews(slots: dict[str, Any]) -> tuple[int, dict[str, int]]:
+    """
+    根据提取的 slots 槽位信息计算 PEWS (Pediatric Early Warning Score) 评分。
+    PEWS 评分涵盖三个维度：精神行为表现 (Behavior)、心血管状态 (Cardiovascular)、呼吸状态 (Respiratory)。
+    每个维度得分为 0~3 分，总分为 0~9 分。
+    """
+    scores = {"behavior": 0, "cardiovascular": 0, "respiratory": 0}
+    
+    # 1. 精神行为维度评估
+    behavior_text = str(slots.get("behavior") or slots.get("mental_status") or "").lower()
+    if behavior_text:
+        # 3分：昏睡、对刺激反应极低/无反应、神志不清、谵妄、难以唤醒
+        if any(kw in behavior_text for kw in ["昏睡", "神志不清", "无反应", "谵妄", "难以唤醒", "唤不醒"]):
+            scores["behavior"] = 3
+        # 2分：难以唤醒、对刺激反应迟钝、极度萎靡、昏昏欲睡
+        elif any(kw in behavior_text for kw in ["反应迟钝", "极其萎靡", "嗜睡", "极其不好", "精神极差"]):
+            scores["behavior"] = 2
+        # 1分：精神萎靡、神志淡漠、爱哭闹、烦躁不安
+        elif any(kw in behavior_text for kw in ["萎靡", "淡漠", "烦躁", "哭闹", "精神差", "精神不好", "懒动"]):
+            scores["behavior"] = 1
+            
+    # 2. 心血管与末梢循环维度评估
+    cv_text = str(slots.get("cardiovascular") or slots.get("skin_circulation") or "").lower()
+    if cv_text:
+        # 3分：发绀、明显青紫、发紫、毛细血管再充盈时间 > 3秒
+        if any(kw in cv_text for kw in ["发绀", "青紫", "发紫", "再充盈>3", "充盈大于3"]):
+            scores["cardiovascular"] = 3
+        # 2分：手脚冰凉、大理石样花纹、毛细血管再充盈 3 秒左右
+        elif any(kw in cv_text for kw in ["冰凉", "冰冷", "凉", "大理石", "花纹", "再充盈3"]):
+            scores["cardiovascular"] = 2
+        # 1分：面色苍白、面色灰暗
+        elif any(kw in cv_text for kw in ["苍白", "灰暗", "白", "无血色"]):
+            scores["cardiovascular"] = 1
+            
+    # 3. 呼吸维度评估
+    resp_text = str(slots.get("respiratory") or slots.get("respiratory_status") or "").lower()
+    if resp_text:
+        # 3分：叹气样呼吸、呼吸暂停、喘憋窒息、青紫
+        if any(kw in resp_text for kw in ["叹气", "暂停", "发绀", "窒息", "喘憋", "青紫"]):
+            scores["respiratory"] = 3
+        # 2分：明显三凹征（锁骨上/肋间/剑突下凹陷）、明显呻吟、呼吸急促/困难
+        elif any(kw in resp_text for kw in ["三凹征", "凹陷", "呻吟", "急促", "极快", "呼吸困难"]):
+            scores["respiratory"] = 2
+        # 1分：呼吸轻度增快、轻度三凹征、气促
+        elif any(kw in resp_text for kw in ["气促", "稍快", "轻度三凹", "增快"]):
+            scores["respiratory"] = 1
+            
+    total_score = sum(scores.values())
+    return total_score, scores
+
+
 def _get_age_band(patient_context: Dict[str, object]) -> str:
     age_months = patient_context.get("ageMonths")
     if not isinstance(age_months, int):
@@ -1067,8 +1118,8 @@ def agentic_tools_node(state: GraphState):
         response["ocr_result"] = collected_ocr_result
     return response
 
-def slot_filling_node(state: GraphState):
-    """槽位填充节点：自动化追问关键体征"""
+def _inner_slot_filling_node(state: GraphState):
+    """槽位填充节点内置处理函数"""
     trace_id = state.get("trace_id", "unknown")
     all_messages = state.get("messages", [])
     existing_slots = state.get("slots", {})
@@ -1109,7 +1160,10 @@ def slot_filling_node(state: GraphState):
     
     prompt = f"""请以 JSON 结构化输出分析以下完整的对话记录，提取儿科问诊关键信息。
 必填信息：年龄/月龄、主诉症状
-选填信息：体温、持续时长、精神状态、大小便情况
+选填信息：体温、持续时长、大小便情况、以及以下用于 PEWS (儿童早期预警评分) 的客观指征字段：
+  - behavior: 精神行为表现（正常/活跃、哭闹烦躁、精神萎靡、嗜睡、难以唤醒、昏睡无反应）
+  - cardiovascular: 皮肤与循环表现（皮肤红润、面色苍白、手脚冰凉/大理石样花纹、发绀青紫/毛细血管再充盈时间长）
+  - respiratory: 呼吸状态表现（呼吸平稳、气促/呼吸增快、吸气凹陷三凹征、呻吟、叹气样呼吸/呼吸暂停）
 
 已知槽位信息（已从之前对话提取）：{existing_slots}
 
@@ -1118,7 +1172,7 @@ def slot_filling_node(state: GraphState):
 
 请判断是否已收集到足够信息（必填槽位均已填满）。
 - 若信息不足，请给出一个温柔专业的追问句（followup_question）。
-- 同时根据追问的内容，生成 3-5 个简洁的快捷回答选项（followup_options），方便家长直接点选。
+- 同时根据追问的内容，生成 3-5 个简洁 of 快捷回答选项（followup_options），方便家长直接点选。
   例如询问月龄时：["0-3个月", "4-6个月", "7-12个月", "1-3岁", "3岁以上"]
   例如询问体温时：["低热 37.3-38°C", "中热 38-39°C", "高热 39°C以上", "没有发烧"]
   选项必须是对追问的直接作答，不要出现与问题无关的内容。"""
@@ -1142,8 +1196,85 @@ def slot_filling_node(state: GraphState):
                 "reply": result.followup_question  # 同时保留 reply 作为文字兜底
             }
     except Exception:
-        logger.exception(f"[{trace_id}] slot_filling_node 异常")
+        logger.exception(f"[{trace_id}] _inner_slot_filling_node 异常")
         return {"slots": {"status": "error"}}
+
+
+def _pews_emergency_check(slots_to_return: Dict[str, Any], patient_context: Dict[str, Any], trace_id: str) -> Dict[str, Any] | None:
+    """PEWS 确定性评估过滤拦截"""
+    pews_score, pews_details = calculate_pews(slots_to_return)
+    # 如果总评分 >= 5，或者任意单个核心项为 3 分 (重度紧急)
+    is_pews_emergency = (pews_score >= 5) or any(v == 3 for v in pews_details.values())
+    
+    if is_pews_emergency:
+        logger.warning(f"[{trace_id}] 触发 PEWS 预警熔断，总分: {pews_score}, 详情: {pews_details}")
+        
+        reasons = []
+        if pews_details["behavior"] == 3 or (pews_details["behavior"] >= 2 and pews_score >= 5):
+            reasons.append("意识不清或精神极度萎靡")
+        if pews_details["cardiovascular"] == 3 or (pews_details["cardiovascular"] >= 2 and pews_score >= 5):
+            reasons.append("末梢循环极差或严重发绀/青紫")
+        if pews_details["respiratory"] == 3 or (pews_details["respiratory"] >= 2 and pews_score >= 5):
+            reasons.append("严重呼吸困难或呻吟/叹气样呼吸/呼吸暂停")
+            
+        triage_reason = "；".join(reasons) or "儿童早期预警评分(PEWS)达到重度危急线"
+        
+        assessment = _build_assessment_payload(
+            AssessmentResult(
+                triage_level="emergency_now",
+                triage_reason=triage_reason,
+                recommended_actions=[
+                    "请立即前往最近的儿科急诊或呼叫 120 急救，不要继续等待线上问诊。",
+                    "送医途中保持呼吸道畅通，避免自行喂服复杂药物。",
+                    "尽量保暖并记录病情变化次数（如体温、呕吐次数）。"
+                ],
+                warning_signals=list(reasons),
+                constraint_warnings=[],
+                age_band=_get_age_band(patient_context)
+            )
+        )
+        
+        reply = (
+            "### 紧急就医提示 (基于 PEWS 临床评估)\n"
+            "- 当前分诊级别：**立即急诊 (重度危急)**\n"
+            f"- 预警特征：{triage_reason} (PEWS 评分: {pews_score}分)\n"
+            "- 建议：宝宝目前症状极其危急，请立即前往最近的医院儿科急诊，或立即拨打 120 呼叫救护车！\n\n"
+            "> ⚠️ 免责声明：以上内容基于临床 PEWS 量表自动化评分，不能替代医师面诊，请以线下急诊诊断为准。"
+        )
+        
+        # 将 slots["status"] 强置为 missing 迫使 route_after_slot_filling 路由走向 END
+        # 同时回写 pews_score
+        return {
+            "slots": {**slots_to_return, "status": "missing"},
+            "pews_score": pews_score,
+            "assessment": assessment,
+            "reply": reply
+        }
+    return None
+
+
+def slot_filling_node(state: GraphState):
+    """槽位填充节点：自动化追问关键体征，并内置 PEWS 重症熔断校验"""
+    trace_id = state.get("trace_id", "unknown")
+    patient_context = state.get("patient_context", {}) or {}
+    slots_to_write = state.get("slots", {}) or {}
+    
+    # 1. 运行前置 PEWS 强熔断拦截（即使网络断开，依靠本地已有槽位数据也能保证安全就医）
+    pews_emergency_output = _pews_emergency_check(slots_to_write, patient_context, trace_id)
+    if pews_emergency_output:
+        return pews_emergency_output
+        
+    # 2. 运行内置大模型槽位解析器
+    output = _inner_slot_filling_node(state)
+    
+    # 3. 对大模型解析返回的最新 slots 结果，再次进行后置 PEWS 熔断检查
+    latest_slots = output.get("slots", {})
+    if latest_slots and latest_slots.get("status") != "error":
+        post_pews_output = _pews_emergency_check(latest_slots, patient_context, trace_id)
+        if post_pews_output:
+            return post_pews_output
+            
+    return output
 
 def route_after_slot_filling(state: GraphState) -> str:
     """条件路由：根据槽位状态走向"""
@@ -1398,9 +1529,14 @@ def chat_node(state: GraphState):
 请以专业、严谨且温柔的医生口吻回答家长的问题。
 
 ## 回答要求
-1. **先思考后回答**：在回答正式开始前，请务必先将你的临床推理与分析过程包裹在 `<think>` 和 `</think>` 标签内输出。这必须是你思考的第一步！格式为：
+1. **先思考后回答**：在回答正式开始前，请务必先将你的临床推理与分析过程包裹在 `<think>` 和 `</think>` 标签内输出。这必须是你思考的第一步！
+   在思考区内，你必须且仅可使用【中文语法 + 英文术语】的专业推理逻辑，写下以下推导：
+   - **【症状画像与剖析】**：梳理起病时间、核心体征与伴随症状，研判患儿发热、咳喘等严重程度。
+   - **【指南对齐与鉴别诊断】**：比对已召回的儿科医学指南，列出疑似诊断和排除依据。
+   - **【用药安全与合规核算】**：确保不推荐具体处方药品牌和剂量，核查是否存在超龄/超剂量安全红线。
+   格式为：
 <think>
-(这里一字一句流式写下你是如何依据数据、月龄、病史等进行分析的，不要省略)
+(流式写下你的临床推理过程)
 </think>
 
 ---
@@ -1428,7 +1564,11 @@ def chat_node(state: GraphState):
 - 对于非医学问题（如喂养、作息、早教等），给出有科学依据的建议
 
 ## 先思考后回答（必填）
-在给出正式建议前，请务必先将你的临床推理与分析过程包裹在 `<think>` 和 `</think>` 标签内输出，格式为：
+在给出正式建议前，请务必先将你的临床推理与分析过程包裹在 `<think>` 和 `</think>` 标签内输出。在思考区内，你应该客观理清以下要点：
+- **【画像梳理】**：确认宝宝月龄/年龄及本次交互的育儿咨询核心。
+- **【指南对齐】**：根据召回的常识或指南，梳理科学抚育建议。
+- **【合规约束】**：自查是否有误作诊断或错误推荐药物的情况。
+格式为：
 <think>
 (流式写下你的分析依据和考量)
 </think>
@@ -1515,7 +1655,18 @@ def chat_node(state: GraphState):
             logger.warning(f"[{trace_id}] 大模型生成了空字符串，触发兜底！")
             content = "【系统提示】抱歉，当前模型未能生成诊断总结，请尝试用文字补充说明您的问题。"
 
-        return {"reply": content}
+        # 提取 think 推理链并解耦最终回复
+        clinical_reasoning = ""
+        clean_reply = content
+        think_match = re.search(r"<think>(.*?)</think>", content, re.DOTALL | re.IGNORECASE)
+        if think_match:
+            clinical_reasoning = think_match.group(1).strip()
+            clean_reply = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL | re.IGNORECASE).strip()
+            
+        return {
+            "reply": clean_reply,
+            "clinical_reasoning": clinical_reasoning
+        }
     except Exception as e:
         logger.exception(f"[{trace_id}] chat_node 异常")
         return {"reply": "【系统提示】抱歉，系统暂时有些忙碌，未能生成回答，请稍后再试。"}
@@ -1543,6 +1694,7 @@ def reflection_node(state: GraphState):
                 "reflection_count": next_count,
                 "reflection_feedback": feedback,
                 "reply": _build_medical_redline_fallback(citations),
+                "clinical_reasoning": "安全合规拦截：原思维推理触犯处方药/推荐剂量红线，已作废。",
             }
         return {"reflection_count": next_count, "reflection_feedback": feedback}
         
@@ -1584,6 +1736,7 @@ def reflection_node(state: GraphState):
                     "reflection_count": next_count,
                     "reflection_feedback": res,
                     "reply": _build_medical_redline_fallback(citations),
+                    "clinical_reasoning": "安全合规拦截：原思维推理触犯处方药/推荐剂量红线，已作废。",
                 }
             return {"reflection_count": next_count, "reflection_feedback": res}
     except Exception:

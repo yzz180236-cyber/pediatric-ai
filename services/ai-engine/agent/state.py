@@ -74,3 +74,9 @@ class GraphState(TypedDict, total=False):
 
     # 结构化分诊/安全评估结果
     assessment: Dict[str, Any]
+
+    # PEWS 儿童预警评分
+    pews_score: int
+
+    # 临床思维推理记录 (CoT 推理部分)
+    clinical_reasoning: str

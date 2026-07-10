@@ -7,6 +7,7 @@ from pathlib import Path
 import json
 import re
 from config import get_llm_base_url, require_env
+from rank_bm25 import BM25Okapi
 
 logger = logging.getLogger(__name__)
 
@@ -83,47 +84,9 @@ class PediatricRAG:
             return "medium"
         return "low"
 
-    def _char_overlap_score(self, query: str, text: str) -> float:
-        query_chars = {char for char in query if re.match(r"[\u4e00-\u9fffA-Za-z0-9]", char)}
-        text_chars = {char for char in text if re.match(r"[\u4e00-\u9fffA-Za-z0-9]", char)}
-        if not query_chars or not text_chars:
-            return 0.0
-        return len(query_chars & text_chars) / len(query_chars)
-
-    def _extract_query_terms(self, query: str) -> list[str]:
-        lexicon = [
-            "支原体", "手足口病", "百日咳", "麻疹", "风疹", "流感", "腹泻", "肺炎",
-            "儿童", "婴幼儿", "呼吸道", "重症", "预警", "健康管理", "免疫规划",
-            "慢阻肺", "人偏肺病毒", "hMPV", "社区获得性肺炎", "0～6岁", "0-6岁",
-        ]
-        return [term for term in lexicon if term.lower() in query.lower()]
-
-    def _extract_primary_disease_terms(self, query: str) -> list[str]:
-        disease_terms = [
-            "支原体", "手足口病", "百日咳", "麻疹", "风疹", "流感",
-            "人偏肺病毒", "hMPV", "腹泻", "肺炎",
-        ]
-        return [term for term in disease_terms if term.lower() in query.lower()]
-
-    def _extract_strict_disease_terms(self, query: str) -> list[str]:
-        strict_terms = [
-            "支原体", "手足口病", "百日咳", "麻疹", "风疹", "流感", "人偏肺病毒", "hMPV",
-        ]
-        return [term for term in strict_terms if term.lower() in query.lower()]
-
-    def _keyword_alignment_score(self, query: str, title: str, content: str) -> float:
-        terms = self._extract_query_terms(query)
-        if not terms:
-            return 0.0
-        haystack = f"{title}\n{content[:500]}".lower()
-        matched = 0
-        strong_mismatch = 0
-        for term in terms:
-            if term.lower() in haystack:
-                matched += 1
-            elif len(term) >= 3:
-                strong_mismatch += 1
-        return matched * 0.12 - strong_mismatch * 0.08
+    def _tokenize(self, text: str) -> List[str]:
+        """中文单字分词 + 保留英文字符/数字"""
+        return [char for char in text.lower() if re.match(r"[\u4e00-\u9fffA-Za-z0-9]", char)]
 
     def _load_collection_if_exists(self):
         """如果集合存在，则加载到内存中准备检索"""
@@ -140,79 +103,89 @@ class PediatricRAG:
             if not self.client.has_collection(COLLECTION_NAME):
                 return ("知识库尚未建立，请先运行数据预热入库脚本。", [])
 
+            # 1. 向量检索：召回稍微多一点的候选集 (例如 top_k * 4)
             query_vector = self.embeddings.embed_query(query)
             res = self.client.search(
                 collection_name=COLLECTION_NAME,
                 data=[query_vector],
-                limit=max(top_k * 4, 12),
+                limit=max(top_k * 4, 20),
                 output_fields=["text", "source_title", "source_chapter"],
                 search_params={"metric_type": "COSINE"}
             )
             
             citations: List[Citation] = []
-            ranked_hits: list[tuple[float, Citation]] = []
-            if res and len(res[0]) > 0:
-                for hit in res[0]:
-                    if hit.get("distance", 0) < SIMILARITY_THRESHOLD:
-                        continue
-                    raw_title = hit["entity"].get("source_title", "未知来源")
-                    title = self._normalize_title(raw_title)
-                    content = hit["entity"].get("text", "")
-                    lexical_score = (
-                        self._char_overlap_score(query, title) * 0.7
-                        + self._char_overlap_score(query, content[:300]) * 0.3
-                    )
-                    keyword_score = self._keyword_alignment_score(query, title, content)
-                    final_score = float(hit.get("distance", 0)) + lexical_score + keyword_score
-                    ranked_hits.append((final_score, {
-                        "title": title,
-                        "chapter": self._normalize_chapter(
-                            raw_title,
-                            hit["entity"].get("source_chapter", "未知章节"),
-                        ),
-                        "content": content,
-                        "sourceType": "guideline",
-                        "sourcePath": self._resolve_source_path(raw_title),
-                        "score": round(final_score, 4),
-                        "retrievalConfidence": self._to_confidence_label(final_score),
-                    }))
-            if ranked_hits:
-                ranked_hits.sort(key=lambda item: item[0], reverse=True)
-                primary_terms = self._extract_primary_disease_terms(query)
-                strict_terms = self._extract_strict_disease_terms(query)
-                if strict_terms:
-                    strict_hits = []
-                    non_strict_hits = []
-                    for score, citation in ranked_hits:
-                        haystack = f"{citation['title']}\n{citation['content'][:400]}".lower()
-                        if all(term.lower() in haystack for term in strict_terms):
-                            strict_hits.append((score, citation))
-                        else:
-                            non_strict_hits.append((score, citation))
-                    if len(strict_hits) >= 3:
-                        ranked_hits = strict_hits + non_strict_hits
-                if primary_terms:
-                    matched_hits = []
-                    fallback_hits = []
-                    for score, citation in ranked_hits:
-                        haystack = f"{citation['title']}\n{citation['content'][:400]}".lower()
-                        if any(term.lower() in haystack for term in primary_terms):
-                            matched_hits.append((score, citation))
-                        else:
-                            fallback_hits.append((score, citation))
-                    ranked_hits = matched_hits + fallback_hits
-                seen_keys: set[str] = set()
-                deduped: list[Citation] = []
-                for _, citation in ranked_hits:
-                    dedupe_key = f"{citation['title']}::{citation['content'][:120]}"
-                    if dedupe_key in seen_keys:
-                        continue
-                    seen_keys.add(dedupe_key)
-                    deduped.append(citation)
-                    if len(deduped) >= top_k:
-                        break
-                citations = deduped
-
+            if not res or len(res[0]) == 0:
+                return ("暂无相关指南数据。", [])
+                
+            hits = res[0]
+            
+            # 2. 向量得分过滤 (余弦相似度必须 >= 阈值，防严重幻觉)
+            valid_hits = [hit for hit in hits if hit.get("distance", 0) >= SIMILARITY_THRESHOLD]
+            if not valid_hits:
+                return ("暂无相关指南数据。", [])
+                
+            # 3. 构造本地 BM25 索引进行双路检索打分
+            corpus = [
+                self._tokenize(f"{hit['entity'].get('source_title', '')} {hit['entity'].get('text', '')}") 
+                for hit in valid_hits
+            ]
+            bm25 = BM25Okapi(corpus)
+            query_tokens = self._tokenize(query)
+            bm25_scores = bm25.get_scores(query_tokens)
+            
+            # 4. 混合打分融合 (Hybrid Score)
+            max_bm25 = max(bm25_scores) if len(bm25_scores) > 0 else 0.0
+            min_bm25 = min(bm25_scores) if len(bm25_scores) > 0 else 0.0
+            bm25_range = max_bm25 - min_bm25
+            
+            ranked_hits: List[Tuple[float, Citation]] = []
+            alpha = 0.6  # 向量分权重 0.6，BM25 分权重 0.4
+            
+            for idx, hit in enumerate(valid_hits):
+                vector_score = float(hit.get("distance", 0))
+                bm25_score = float(bm25_scores[idx])
+                
+                # 归一化 BM25 分数
+                norm_bm25_score = (
+                    (bm25_score - min_bm25) / bm25_range 
+                    if bm25_range > 0 else 0.0
+                )
+                
+                # 混合打分
+                final_score = alpha * vector_score + (1.0 - alpha) * norm_bm25_score
+                
+                raw_title = hit["entity"].get("source_title", "未知来源")
+                title = self._normalize_title(raw_title)
+                content = hit["entity"].get("text", "")
+                
+                ranked_hits.append((final_score, {
+                    "title": title,
+                    "chapter": self._normalize_chapter(
+                        raw_title,
+                        hit["entity"].get("source_chapter", "未知章节"),
+                    ),
+                    "content": content,
+                    "sourceType": "guideline",
+                    "sourcePath": self._resolve_source_path(raw_title),
+                    "score": round(final_score, 4),
+                    "retrievalConfidence": self._to_confidence_label(final_score),
+                }))
+                
+            # 5. 排序、去重与截断
+            ranked_hits.sort(key=lambda x: x[0], reverse=True)
+            
+            seen_keys: set[str] = set()
+            deduped: list[Citation] = []
+            for _, citation in ranked_hits:
+                dedupe_key = f"{citation['title']}::{citation['content'][:120]}"
+                if dedupe_key in seen_keys:
+                    continue
+                seen_keys.add(dedupe_key)
+                deduped.append(citation)
+                if len(deduped) >= top_k:
+                    break
+                    
+            citations = deduped
             context = "\n\n".join([c["content"] for c in citations]) if citations else "暂无相关指南数据。"
             return (context, citations)
             

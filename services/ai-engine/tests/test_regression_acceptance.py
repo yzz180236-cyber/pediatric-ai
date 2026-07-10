@@ -7,7 +7,7 @@ from unittest.mock import patch
 
 from langchain_core.messages import AIMessage
 
-sys.path.append(str(Path(__file__).resolve().parent))
+sys.path.append(str(Path(__file__).resolve().parent.parent))
 
 from agent.graph import build_graph  # noqa: E402
 
