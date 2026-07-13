@@ -1,6 +1,6 @@
 import Taro from '@tarojs/taro';
 import { useUserStore } from '../store/userStore';
-import { BASE_URL } from './request';
+import { BASE_URL, request } from './request';
 import { trackEvent } from './tracker';
 
 export const isH5Dev = process.env.TARO_ENV === 'h5' && process.env.NODE_ENV === 'development';
@@ -71,31 +71,21 @@ export async function ensureAuthenticated(): Promise<string> {
 }
 
 async function loginWithPayload(payload: Record<string, string>) {
-  const response = await Taro.request({
-    url: `${BASE_URL}/auth/login`,
+  const data = await request<any>('/auth/login', {
     method: 'POST',
     data: payload,
   });
 
-  if (response.statusCode !== 201 && response.statusCode !== 200) {
-    throw new Error(response.data?.message || '登录请求失败');
-  }
-
-  const { accessToken, userId, authSource } = response.data as {
+  const { accessToken, userId, authSource, role } = data as {
     accessToken: string;
     expiresIn: number;
     userId: string;
     authSource: string;
     role: string;
   };
-  const { role } = response.data as {
-    accessToken: string;
-    expiresIn: number;
-    userId: string;
-    authSource: string;
-    role: string;
-  };
+  
   useUserStore.getState().setToken(accessToken, role, userId, authSource);
   trackEvent('auth_login_success', { authSource, userId });
   console.log('登录成功，已获取 Token');
 }
+

@@ -1,5 +1,6 @@
 import Taro from '@tarojs/taro';
 import { useUserStore } from '../store/userStore';
+import { generateSignatureHeaders } from './security';
 
 export const BASE_URL = (typeof process !== 'undefined' && process.env.TARO_APP_BFF_URL) ? process.env.TARO_APP_BFF_URL : 'http://localhost:3000/api/v1';
 export const AI_ENGINE_URL = (typeof process !== 'undefined' && process.env.TARO_APP_AI_ENGINE_URL) ? process.env.TARO_APP_AI_ENGINE_URL : 'http://localhost:8000';
@@ -10,9 +11,11 @@ export const request = async <T = any>(
 ): Promise<T> => {
   const token = useUserStore.getState().token;
   
+  const sigHeaders = generateSignatureHeaders(options.data);
   const header = {
     ...options.header,
     'Content-Type': 'application/json',
+    ...sigHeaders,
   };
 
   if (token) {

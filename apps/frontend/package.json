@@ -27,6 +27,7 @@
     "marked": "^18.0.5",
     "react": "^18.2.0",
     "react-dom": "^18.2.0",
+    "sm-crypto": "^0.4.0",
     "zustand": "^5.0.14"
   },
   "devDependencies": {
@@ -36,6 +37,7 @@
     "@tarojs/vite-runner": "^4.2.0",
     "@tarojs/webpack5-runner": "4.2.0",
     "@types/react": "^18.0.0",
+    "@types/sm-crypto": "^0.3.4",
     "@types/webpack-env": "^1.13.6",
     "babel-preset-taro": "4.2.0",
     "react-refresh": "^0.18.0",

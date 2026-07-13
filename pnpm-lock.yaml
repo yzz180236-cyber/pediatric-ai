@@ -133,6 +133,9 @@ importers:
       '@types/passport-jwt':
         specifier: ^4.0.1
         version: 4.0.1
+      '@types/sm-crypto':
+        specifier: ^0.3.4
+        version: 0.3.4
       '@types/supertest':
         specifier: ^7.0.0
         version: 7.2.0
@@ -238,6 +241,9 @@ importers:
       react-dom:
         specifier: ~18.3.1
         version: 18.3.1(react@18.3.1)
+      sm-crypto:
+        specifier: ^0.4.0
+        version: 0.4.0
       zustand:
         specifier: ^5.0.14
         version: 5.0.14(@types/react@18.3.31)(react@18.3.1)
@@ -260,6 +266,9 @@ importers:
       '@types/react':
         specifier: 18.3.31
         version: 18.3.31
+      '@types/sm-crypto':
+        specifier: ^0.3.4
+        version: 0.3.4
       '@types/webpack-env':
         specifier: ^1.13.6
         version: 1.18.8
@@ -2995,6 +3004,9 @@ packages:
   '@types/babel__traverse@7.28.0':
     resolution: {integrity: sha512-8PvcXf70gTDZBgt9ptxJ8elBeBjcLOAcOtoO/mPJjtji1+CdGbHgm77om1GrsPxsiE+uXIpNSK64UYaIwQXd4Q==}
 
+  '@types/bigi@1.4.5':
+    resolution: {integrity: sha512-fb5MUzazrD2GRnwlStm91HVu3cZbvolX9kJruqpUBdc24eHBWrLLfyt8XN1/C5JpI0stP/MbaFQp+cJh5WOFfw==}
+
   '@types/body-parser@1.19.6':
     resolution: {integrity: sha512-HLFeCYgz89uk22N5Qg3dvGvsv46B8GLvKKo1zKG4NybA8U2DiEO3w9lqGg29t/tfLRJpJ6iQxnVw4OnB7MoM9g==}
 
@@ -3155,6 +3167,9 @@ packages:
 
   '@types/serve-static@2.2.0':
     resolution: {integrity: sha512-8mam4H1NHLtu7nmtalF7eyBH14QyOASmcxHhSfEoRyr0nP/YdoesEtU+uSRvMe96TW/HPTtkoKqQLl53N7UXMQ==}
+
+  '@types/sm-crypto@0.3.4':
+    resolution: {integrity: sha512-tp+KWAawUkwUWSpA3sHymerfy9P0utSyfdh7D60FJ4Aj1rhBZ2Q/nDvARUmmfQeIZZD1FKg9oAcDqecCux0npw==}
 
   '@types/sockjs@0.3.36':
     resolution: {integrity: sha512-MK9V6NzAS1+Ud7JV9lJLFqW85VbC9dq3LmwZCuBe4wBDgKC0Kj/jd8Xl+nSviU+Qc3+m7umHHyHg//2KSa0a0Q==}
@@ -12272,6 +12287,8 @@ snapshots:
     dependencies:
       '@babel/types': 7.29.7
 
+  '@types/bigi@1.4.5': {}
+
   '@types/body-parser@1.19.6':
     dependencies:
       '@types/connect': 3.4.38
@@ -12477,6 +12494,10 @@ snapshots:
     dependencies:
       '@types/http-errors': 2.0.5
       '@types/node': 24.13.2
+
+  '@types/sm-crypto@0.3.4':
+    dependencies:
+      '@types/bigi': 1.4.5
 
   '@types/sockjs@0.3.36':
     dependencies:

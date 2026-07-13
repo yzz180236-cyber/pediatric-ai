@@ -5,7 +5,7 @@ import { useChatStore } from "../../../store/chatStore";
 import { useUserStore } from "../../../store/userStore";
 import { BASE_URL, request } from "../../../utils/request";
 import { ensureAuthenticated, isH5Dev } from "../../../utils/auth";
-import { containsHighRiskWords } from "../../../utils/security";
+import { containsHighRiskWords, generateSignatureHeaders } from "../../../utils/security";
 import { trackEvent } from "../../../utils/tracker";
 
 export function useChatActions() {
@@ -254,10 +254,20 @@ export function useChatActions() {
     setImageFileId("");
     setInputValue("");
 
+    const payload = {
+      sessionId,
+      message: text,
+      image: snapshotImageFileId ? null : snapshotImage,
+      imageFileId: snapshotImageFileId,
+      history,
+    };
+
     const token = await ensureAuthenticated();
+    const sigHeaders = generateSignatureHeaders(payload);
     const header = {
       "Content-Type": "application/json",
       Authorization: `Bearer ${token}`,
+      ...sigHeaders,
     };
 
     try {
@@ -267,13 +277,7 @@ export function useChatActions() {
         const res = await fetch(`${BASE_URL}/chat/stream`, {
           method: "POST",
           headers: header,
-          body: JSON.stringify({
-            sessionId,
-            message: text,
-            image: snapshotImageFileId ? null : snapshotImage,
-            imageFileId: snapshotImageFileId,
-            history,
-          }),
+          body: JSON.stringify(payload),
           signal: controller.signal,
         });
 
@@ -398,13 +402,7 @@ export function useChatActions() {
           url: `${BASE_URL}/chat/stream`,
           method: "POST",
           header,
-          data: {
-            sessionId,
-            message: text,
-            image: snapshotImageFileId ? null : snapshotImage,
-            imageFileId: snapshotImageFileId,
-            history,
-          },
+          data: payload,
           enableChunked: true,
           success: (res: any) => {
             if (res.statusCode === 401) {

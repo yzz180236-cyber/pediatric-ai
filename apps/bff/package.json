@@ -59,6 +59,7 @@
     "@types/jest": "^30.0.0",
     "@types/node": "^24.0.0",
     "@types/passport-jwt": "^4.0.1",
+    "@types/sm-crypto": "^0.3.4",
     "@types/supertest": "^7.0.0",
     "@types/uuid": "^11.0.0",
     "eslint": "^9.18.0",
